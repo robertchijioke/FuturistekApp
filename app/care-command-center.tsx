@@ -6,6 +6,7 @@ import MissionControlMap from "../components/MissionControlMap";
 import ResponseETA from "../components/ResponseETA";
 import ResponseProgress from "../components/ResponseProgress";
 import { useIncident } from "../context/IncidentContext";
+import { baseStaff } from "../data/care-staff";
 import { db } from "../lib/firebase";
 import { nextIncidentStage, resetIncident } from "../utils/incidentEngine";
 import { logTimeline } from "../utils/timeline";
@@ -740,30 +741,6 @@ const updateCareEventStageForRoom = async (
       return false;
     }
   };
-
-  const baseStaff = [
-    {
-      name: "Alice",
-      role: "Nurse",
-      status: "AVAILABLE",
-      assignedRoom: "",
-      location: "Nurse Station",
-    },
-    {
-      name: "James",
-      role: "Care Staff",
-      status: "AVAILABLE",
-      assignedRoom: "",
-      location: "Nurse Station",
-    },
-    {
-      name: "Sarah",
-      role: "Supervisor",
-      status: "AVAILABLE",
-      assignedRoom: "",
-      location: "Nurse Station",
-    },
-  ];
 
   const residents: any[] = realResidents
     .filter(

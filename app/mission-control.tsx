@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { baseStaff } from "../data/care-staff";
 import { db } from "../lib/firebase";
 
 type CareSite = {
@@ -28,7 +29,7 @@ const initialCareSites: CareSite[] = [
     status: "ATTENTION",
     activeIncidents: 1,
     residents: 7,
-    staffOnDuty: 4,
+    staffOnDuty: baseStaff.length,
   },
   {
     id: "site-2",
