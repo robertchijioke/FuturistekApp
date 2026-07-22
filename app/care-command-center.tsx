@@ -1,4 +1,7 @@
-import { useRouter } from "expo-router";
+import {
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -169,6 +172,31 @@ const getEscalationLevel = (createdAt: any, responseStatus?: string) => {
 
 export default function CareCommandCenter() {
   const router = useRouter();
+
+  const {
+    siteId,
+    siteName,
+    siteLocation,
+  } = useLocalSearchParams<{
+    siteId?: string;
+    siteName?: string;
+    siteLocation?: string;
+  }>();
+
+  const selectedSiteId =
+    typeof siteId === "string" && siteId.trim()
+      ? siteId.trim()
+      : "site-1";
+
+  const selectedSiteName =
+    typeof siteName === "string" && siteName.trim()
+      ? siteName.trim()
+      : "Futuristek Care Centre";
+
+  const selectedSiteLocation =
+    typeof siteLocation === "string" && siteLocation.trim()
+      ? siteLocation.trim()
+      : "London";
 
   const openResidentProfile = (resident: any) => {
     const residentId = String(resident.room)
@@ -1091,8 +1119,35 @@ const updateCareEventStageForRoom = async (
       style={{ flex: 1, backgroundColor: "#061826" }}
       contentContainerStyle={{ padding: 24, paddingTop: 70, paddingBottom: 80 }}
     >
-      <Text style={{ color: "#fff", fontSize: 46, fontWeight: "900" }}>
+      <Text
+        style={{
+          color: "#fff",
+          fontSize: 46,
+          fontWeight: "900",
+        }}
+      >
         🏥 Care Command Center
+      </Text>
+
+      <Text
+        style={{
+          color: "#93c5fd",
+          fontSize: 21,
+          fontWeight: "700",
+          marginTop: 10,
+        }}
+      >
+        {selectedSiteName}
+      </Text>
+
+      <Text
+        style={{
+          color: "#cbd5e1",
+          fontSize: 17,
+          marginTop: 4,
+        }}
+      >
+        📍 {selectedSiteLocation}
       </Text>
 
       <Pressable

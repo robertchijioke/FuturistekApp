@@ -251,7 +251,22 @@ export default function MissionControl() {
             </View>
 
             <Pressable
-              onPress={() => router.push("/care-command-center")}
+              onPress={() => {
+                console.log("MISSION CONTROL → SITE:", {
+                  siteId: site.id,
+                  siteName: site.name,
+                  siteLocation: site.location,
+                });
+
+                router.push({
+                  pathname: "/care-command-center",
+                  params: {
+                    siteId: site.id,
+                    siteName: site.name,
+                    siteLocation: site.location,
+                  },
+                } as any);
+              }}
               style={styles.openButton}
             >
               <Text style={styles.openButtonText}>
