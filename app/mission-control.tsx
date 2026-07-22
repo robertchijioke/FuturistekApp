@@ -68,19 +68,28 @@ export default function MissionControl() {
     const unsubscribeResidents = onSnapshot(
       residentsRef,
       (snapshot) => {
+        const residentCountsBySite: Record<string, number> = {};
+
+        snapshot.docs.forEach((document) => {
+          const data = document.data();
+
+          const residentSiteId =
+            String(data.siteId ?? "site-1").trim() ||
+            "site-1";
+
+          residentCountsBySite[residentSiteId] =
+            (residentCountsBySite[residentSiteId] ?? 0) + 1;
+        });
+
         setCareSites((currentSites) =>
-          currentSites.map((site) =>
-            site.id === "site-1"
-              ? {
-                  ...site,
-                  residents: snapshot.size,
-                }
-              : site
-          )
+          currentSites.map((site) => ({
+            ...site,
+            residents: residentCountsBySite[site.id] ?? 0,
+          }))
         );
 
-        console.log("MISSION CONTROL RESIDENTS:", {
-          count: snapshot.size,
+        console.log("MISSION CONTROL RESIDENTS BY SITE:", {
+          counts: residentCountsBySite,
         });
       },
       (error) => {
@@ -94,25 +103,37 @@ export default function MissionControl() {
     const unsubscribeIncidents = onSnapshot(
       activeIncidentsQuery,
       (snapshot) => {
-        const activeIncidentCount = snapshot.size;
+        const incidentCountsBySite: Record<string, number> = {};
+
+        snapshot.docs.forEach((document) => {
+          const data = document.data();
+
+          const incidentSiteId =
+            String(data.siteId ?? "site-1").trim() ||
+            "site-1";
+
+          incidentCountsBySite[incidentSiteId] =
+            (incidentCountsBySite[incidentSiteId] ?? 0) + 1;
+        });
 
         setCareSites((currentSites) =>
-          currentSites.map((site) =>
-            site.id === "site-1"
-              ? {
-                  ...site,
-                  activeIncidents: activeIncidentCount,
-                  status:
-                    activeIncidentCount > 0
-                      ? "ATTENTION"
-                      : "OPERATIONAL",
-                }
-              : site
-          )
+          currentSites.map((site) => {
+            const activeIncidentCount =
+              incidentCountsBySite[site.id] ?? 0;
+
+            return {
+              ...site,
+              activeIncidents: activeIncidentCount,
+              status:
+                activeIncidentCount > 0
+                  ? "ATTENTION"
+                  : "OPERATIONAL",
+            };
+          })
         );
 
-        console.log("MISSION CONTROL ACTIVE INCIDENTS:", {
-          count: activeIncidentCount,
+        console.log("MISSION CONTROL INCIDENTS BY SITE:", {
+          counts: incidentCountsBySite,
         });
       },
       (error) => {

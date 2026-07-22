@@ -285,6 +285,10 @@ export default function CareCommandCenter() {
             return {
               id: document.id,
 
+              siteId:
+                String(data.siteId ?? "site-1").trim() ||
+                "site-1",
+
               fullName: String(
                 data.fullName ??
                   data.name ??
@@ -320,6 +324,7 @@ export default function CareCommandCenter() {
           })
           .filter(
             (resident) =>
+              resident.siteId === selectedSiteId &&
               resident.id &&
               resident.fullName &&
               resident.room
@@ -346,6 +351,7 @@ export default function CareCommandCenter() {
           });
 
           console.log("✅ COMMAND CENTER RESIDENTS LOADED:", {
+            siteId: selectedSiteId,
             count: loadedResidents.length,
           });
         },
@@ -358,7 +364,7 @@ export default function CareCommandCenter() {
       );
 
       return unsubscribe;
-    }, []);
+    }, [selectedSiteId]);
 
   useEffect(() => {
   if (!isPlaying) return;
@@ -429,17 +435,27 @@ useEffect(() => {
         id: document.id,
         incidentId: document.id,
         eventId: document.id,
+
+        siteId:
+          String(data.siteId ?? "site-1").trim() ||
+          "site-1",
       };
     });
 
-    const activeEvents: any[] = allEvents.filter(
+    const siteEvents = allEvents.filter(
+      (event: any) =>
+        String(event.siteId ?? "site-1").trim() ===
+        selectedSiteId
+    );
+
+    const activeEvents: any[] = siteEvents.filter(
       (event: any) =>
         String(event.status ?? "")
           .trim()
           .toLowerCase() === "active"
     );
 
-    setAllCareEvents(allEvents);
+    setAllCareEvents(siteEvents);
     setActiveCareEvents(activeEvents);
 
     const contextIncidents = activeEvents
@@ -492,7 +508,7 @@ useEffect(() => {
   });
 
   return unsub;
-}, []);
+}, [selectedSiteId]);
 
 const updateCareEventStageForRoom = async (
     room: string,
@@ -731,6 +747,7 @@ const updateCareEventStageForRoom = async (
           residentId: incidentResidentId,
           residentName: incidentResidentName,
           room: incidentRoom,
+          siteId: selectedSiteId,
           type: "Fall Detection",
           severity: "HIGH",
           status: "active",
