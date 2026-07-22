@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "902298067474",
+    "project_id": "futuristekapp",
+    "storage_bucket": "futuristekapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:902298067474:android:0ac3232155b6f47ac9eecb",
+        "android_client_info": {
+          "package_name": "com.anonymous.FuturistekApp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCYBD5ZpxT62RnFIN1AV6qjhY2lIXBYMyA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

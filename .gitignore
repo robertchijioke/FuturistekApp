@@ -41,3 +41,23 @@ app-example
 # generated native folders
 /ios
 /android
+# Private environment files
+.env
+.env.*
+!.env.example
+
+# Firebase private credentials
+*firebase-adminsdk*.json
+
+# Accidental nested project copy
+/FuturistekApp/
+
+# Local VS Code files
+/.vscode/functions/
+
+# Accidental/generated Android folders
+/app/android/android_backup/
+/functions/android/
+
+# Android debug signing keys
+**/debug.keystore
