@@ -1118,6 +1118,28 @@ const updateCareEventStageForRoom = async (
         🏥 Care Command Center
       </Text>
 
+      <Pressable
+        onPress={() => router.push("/mission-control" as any)}
+        style={{
+          backgroundColor: "#7c3aed",
+          paddingVertical: 16,
+          paddingHorizontal: 18,
+          borderRadius: 14,
+          marginTop: 18,
+        }}
+      >
+        <Text
+          style={{
+            color: "#ffffff",
+            fontSize: 17,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          🌍 Open Futuristek Mission Control
+        </Text>
+      </Pressable>
+
       <View style={{ marginTop: 16, marginBottom: 20 }}>
         {incidents.map((item: any) => (
           <Pressable
