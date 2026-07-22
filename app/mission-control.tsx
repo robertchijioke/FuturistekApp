@@ -1,11 +1,14 @@
 import { useRouter } from "expo-router";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { useEffect, useState } from "react";
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
+import { db } from "../lib/firebase";
 
 type CareSite = {
   id: string;
@@ -17,7 +20,7 @@ type CareSite = {
   staffOnDuty: number;
 };
 
-const careSites: CareSite[] = [
+const initialCareSites: CareSite[] = [
   {
     id: "site-1",
     name: "Futuristek Care Centre",
@@ -49,6 +52,81 @@ const careSites: CareSite[] = [
 
 export default function MissionControl() {
   const router = useRouter();
+
+  const [careSites, setCareSites] =
+    useState<CareSite[]>(initialCareSites);
+
+  useEffect(() => {
+    const residentsRef = collection(db, "residents");
+
+    const activeIncidentsQuery = query(
+      collection(db, "careEvents"),
+      where("status", "==", "active")
+    );
+
+    const unsubscribeResidents = onSnapshot(
+      residentsRef,
+      (snapshot) => {
+        setCareSites((currentSites) =>
+          currentSites.map((site) =>
+            site.id === "site-1"
+              ? {
+                  ...site,
+                  residents: snapshot.size,
+                }
+              : site
+          )
+        );
+
+        console.log("MISSION CONTROL RESIDENTS:", {
+          count: snapshot.size,
+        });
+      },
+      (error) => {
+        console.error(
+          "MISSION CONTROL RESIDENTS ERROR:",
+          error
+        );
+      }
+    );
+
+    const unsubscribeIncidents = onSnapshot(
+      activeIncidentsQuery,
+      (snapshot) => {
+        const activeIncidentCount = snapshot.size;
+
+        setCareSites((currentSites) =>
+          currentSites.map((site) =>
+            site.id === "site-1"
+              ? {
+                  ...site,
+                  activeIncidents: activeIncidentCount,
+                  status:
+                    activeIncidentCount > 0
+                      ? "ATTENTION"
+                      : "OPERATIONAL",
+                }
+              : site
+          )
+        );
+
+        console.log("MISSION CONTROL ACTIVE INCIDENTS:", {
+          count: activeIncidentCount,
+        });
+      },
+      (error) => {
+        console.error(
+          "MISSION CONTROL INCIDENTS ERROR:",
+          error
+        );
+      }
+    );
+
+    return () => {
+      unsubscribeResidents();
+      unsubscribeIncidents();
+    };
+  }, []);
 
   const totalResidents = careSites.reduce(
     (total, site) => total + site.residents,
@@ -109,8 +187,13 @@ export default function MissionControl() {
         <Text style={styles.sectionTitle}>🤖 AI Command Centre</Text>
 
         <Text style={styles.commandText}>
-          All connected sites are being monitored. One active incident
-          currently requires attention.
+          {totalIncidents > 0
+            ? `All connected sites are being monitored. ${totalIncidents} active ${
+                totalIncidents === 1
+                  ? "incident requires"
+                  : "incidents require"
+              } attention.`
+            : "All connected sites are being monitored. No active incidents currently require attention."}
         </Text>
 
         <View style={styles.commandStatus}>
