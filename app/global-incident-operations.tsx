@@ -1,7 +1,14 @@
 import { useRouter } from "expo-router";
-import { collection, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +36,9 @@ type GlobalIncident = {
   status: string;
   assignedStaff: string;
   createdAt?: any;
+  enterpriseEscalationAcknowledged: boolean;
+  enterpriseEscalationAcknowledgedAt?: any;
+  enterpriseEscalationAcknowledgedBy: string;
 };
 
 const responseStages = [
@@ -221,6 +231,11 @@ export default function GlobalIncidentOperations() {
     Date.now()
   );
 
+  const [
+    acknowledgingIncidentId,
+    setAcknowledgingIncidentId,
+  ] = useState<string | null>(null);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
@@ -326,6 +341,17 @@ export default function GlobalIncidentOperations() {
                 ).trim() || "Awaiting assignment",
 
               createdAt: data.createdAt,
+
+              enterpriseEscalationAcknowledged:
+              data.enterpriseEscalationAcknowledged === true,
+
+              enterpriseEscalationAcknowledgedAt:
+                data.enterpriseEscalationAcknowledgedAt,
+
+              enterpriseEscalationAcknowledgedBy:
+                String(
+                  data.enterpriseEscalationAcknowledgedBy ?? ""
+                ).trim(),
             };
           });
 
@@ -460,6 +486,49 @@ const breachedIncidentCount = useMemo(
     }).length,
   [activeIncidents, currentTime]
 );
+
+const acknowledgeEnterpriseEscalation = async (
+    incident: GlobalIncident
+  ) => {
+    if (
+      incident.enterpriseEscalationAcknowledged ||
+      acknowledgingIncidentId === incident.id
+    ) {
+      return;
+    }
+
+    try {
+      setAcknowledgingIncidentId(incident.id);
+
+      await updateDoc(
+        doc(db, "careEvents", incident.id),
+        {
+          enterpriseEscalationAcknowledged: true,
+          enterpriseEscalationAcknowledgedAt:
+            serverTimestamp(),
+          enterpriseEscalationAcknowledgedBy:
+            "Global Operations",
+        }
+      );
+
+      Alert.alert(
+        "Escalation acknowledged",
+        "Global Operations has acknowledged this escalation. The clinical response stage has not been changed."
+      );
+    } catch (error) {
+      console.error(
+        "GLOBAL ESCALATION ACKNOWLEDGEMENT ERROR:",
+        error
+      );
+
+      Alert.alert(
+        "Acknowledgement failed",
+        "The escalation could not be acknowledged. Check the connection and try again."
+      );
+    } finally {
+      setAcknowledgingIncidentId(null);
+    }
+  };
 
   const openSiteCommandCentre = (
     incident: GlobalIncident
@@ -741,6 +810,7 @@ const breachedIncidentCount = useMemo(
                         sla.elapsedMilliseconds
                       )}
                     </Text>
+
                   </View>
 
                   <Text
@@ -789,6 +859,51 @@ const breachedIncidentCount = useMemo(
                 🕒 {formatTimestamp(incident.createdAt)}
               </Text>
 
+              {["BREACHED", "AT_RISK"].includes(
+                sla.state
+              ) &&
+                (incident.enterpriseEscalationAcknowledged ? (
+                  <View style={styles.acknowledgedPanel}>
+                    <Text style={styles.acknowledgedTitle}>
+                      ✅ Enterprise escalation acknowledged
+                    </Text>
+
+                    <Text style={styles.acknowledgedText}>
+                      Acknowledged by{" "}
+                      {incident.enterpriseEscalationAcknowledgedBy ||
+                        "Global Operations"}
+                    </Text>
+
+                    <Text style={styles.acknowledgedTime}>
+                      {incident.enterpriseEscalationAcknowledgedAt
+                        ? formatTimestamp(
+                            incident.enterpriseEscalationAcknowledgedAt
+                          )
+                        : "Acknowledgement recorded"}
+                    </Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    disabled={
+                      acknowledgingIncidentId === incident.id
+                    }
+                    onPress={() =>
+                      acknowledgeEnterpriseEscalation(incident)
+                    }
+                    style={[
+                      styles.acknowledgeButton,
+                      acknowledgingIncidentId === incident.id &&
+                        styles.acknowledgeButtonDisabled,
+                    ]}
+                  >
+                    <Text style={styles.acknowledgeButtonText}>
+                      {acknowledgingIncidentId === incident.id
+                        ? "Acknowledging…"
+                        : "✓ Acknowledge Enterprise Escalation"}
+                    </Text>
+                  </Pressable>
+                ))}
+
               <Pressable
                 onPress={() =>
                   router.push({
@@ -806,7 +921,7 @@ const breachedIncidentCount = useMemo(
                 style={styles.openButton}
               >
                 <Text style={styles.openButtonText}>
-                  Open Site Command Centre →
+                   Open Site Command Centre →
                 </Text>
               </Pressable>
             </View>
@@ -1237,5 +1352,52 @@ const styles = StyleSheet.create({
 
   priorityReasonStandard: {
     color: "#4ade80",
+  },
+
+  acknowledgeButton: {
+    backgroundColor: "#b91c1c",
+    borderRadius: 15,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    marginTop: 18,
+  },
+
+  acknowledgeButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  acknowledgeButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  acknowledgedPanel: {
+    backgroundColor: "#052e24",
+    borderColor: "#22c55e",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 18,
+  },
+
+  acknowledgedTitle: {
+    color: "#4ade80",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  acknowledgedText: {
+    color: "#d1fae5",
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+
+  acknowledgedTime: {
+    color: "#94a3b8",
+    fontSize: 14,
+    marginTop: 5,
   },
 });
