@@ -82,6 +82,96 @@ const getStagePriority = (stage: string) => {
   return index >= 0 ? index : responseStages.length;
 };
 
+type SlaState =
+  | "ON_TRACK"
+  | "AT_RISK"
+  | "BREACHED"
+  | "UNKNOWN";
+
+const slaTargetsMinutes: Record<string, number> = {
+  CRITICAL: 5,
+  HIGH: 10,
+  MEDIUM: 20,
+  LOW: 30,
+};
+
+const formatElapsedDuration = (milliseconds: number) => {
+  const totalSeconds = Math.max(
+    0,
+    Math.floor(milliseconds / 1000)
+  );
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(
+    (totalSeconds % 3600) / 60
+  );
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(
+      2,
+      "0"
+    )}m ${String(seconds).padStart(2, "0")}s`;
+  }
+
+  return `${minutes}m ${String(seconds).padStart(
+    2,
+    "0"
+  )}s`;
+};
+
+const getSlaDetails = (
+  createdAt: any,
+  severity: string,
+  currentTime: number
+) => {
+  const createdTimestamp = getTimestamp(createdAt);
+
+  const targetMinutes =
+    slaTargetsMinutes[severity.toUpperCase()] ?? 20;
+
+  const targetMilliseconds =
+    targetMinutes * 60 * 1000;
+
+  if (!createdTimestamp) {
+    return {
+      state: "UNKNOWN" as SlaState,
+      elapsedMilliseconds: 0,
+      remainingMilliseconds: 0,
+      targetMinutes,
+    };
+  }
+
+  const elapsedMilliseconds = Math.max(
+    0,
+    currentTime - createdTimestamp
+  );
+
+  const remainingMilliseconds =
+    targetMilliseconds - elapsedMilliseconds;
+
+  let state: SlaState = "ON_TRACK";
+
+  if (remainingMilliseconds <= 0) {
+    state = "BREACHED";
+  } else if (
+    remainingMilliseconds <=
+    Math.min(
+      5 * 60 * 1000,
+      targetMilliseconds * 0.25
+    )
+  ) {
+    state = "AT_RISK";
+  }
+
+  return {
+    state,
+    elapsedMilliseconds,
+    remainingMilliseconds,
+    targetMinutes,
+  };
+};
+
 const getTimestamp = (value: any): number => {
   if (typeof value?.toMillis === "function") {
     return value.toMillis();
@@ -116,6 +206,20 @@ export default function GlobalIncidentOperations() {
 
   const [allIncidents, setAllIncidents] =
     useState<GlobalIncident[]>([]);
+
+  const [currentTime, setCurrentTime] = useState(
+    Date.now()
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribeSites = onSnapshot(
@@ -296,6 +400,20 @@ const awaitingAssignmentCount = useMemo(
   [activeIncidents]
 );
 
+const breachedIncidentCount = useMemo(
+  () =>
+    activeIncidents.filter((incident) => {
+      const sla = getSlaDetails(
+        incident.createdAt,
+        incident.severity,
+        currentTime
+      );
+
+      return sla.state === "BREACHED";
+    }).length,
+  [activeIncidents, currentTime]
+);
+
   const openSiteCommandCentre = (
     incident: GlobalIncident
   ) => {
@@ -395,6 +513,16 @@ const awaitingAssignmentCount = useMemo(
               awaiting staff assignment.
             </Text>
           )}
+
+          {breachedIncidentCount > 0 && (
+            <Text style={styles.slaEscalationWarning}>
+              ⏱️ {breachedIncidentCount}{" "}
+              {breachedIncidentCount === 1
+                ? "incident has"
+                : "incidents have"}{" "}
+              exceeded the configured response target.
+            </Text>
+          )}
         </View>
       )}
 
@@ -440,6 +568,12 @@ const awaitingAssignmentCount = useMemo(
       ) : (
         activeIncidents.map((incident) => {
           const site = careSites[incident.siteId];
+
+          const sla = getSlaDetails(
+            incident.createdAt,
+            incident.severity,
+            currentTime
+          );
 
           return (
             <View
@@ -515,6 +649,63 @@ const awaitingAssignmentCount = useMemo(
                       },
                     ]}
                   />
+                </View>
+
+                <View
+                  style={[
+                    styles.slaPanel,
+                    sla.state === "BREACHED"
+                      ? styles.slaPanelBreached
+                      : sla.state === "AT_RISK"
+                        ? styles.slaPanelAtRisk
+                        : sla.state === "ON_TRACK"
+                          ? styles.slaPanelOnTrack
+                          : styles.slaPanelUnknown,
+                  ]}
+                >
+                  <View style={styles.slaHeader}>
+                    <Text style={styles.slaTitle}>
+                      ⏱ Response Clock
+                    </Text>
+
+                    <Text style={styles.slaTimer}>
+                      {formatElapsedDuration(
+                        sla.elapsedMilliseconds
+                      )}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.slaStatus,
+                      sla.state === "BREACHED"
+                        ? styles.slaStatusBreached
+                        : sla.state === "AT_RISK"
+                          ? styles.slaStatusAtRisk
+                          : sla.state === "ON_TRACK"
+                            ? styles.slaStatusOnTrack
+                            : styles.slaStatusUnknown,
+                    ]}
+                  >
+                    {sla.state === "BREACHED"
+                      ? `Escalation required • exceeded by ${formatElapsedDuration(
+                          Math.abs(sla.remainingMilliseconds)
+                        )}`
+                      : sla.state === "AT_RISK"
+                        ? `At risk • ${formatElapsedDuration(
+                            sla.remainingMilliseconds
+                          )} remaining`
+                        : sla.state === "ON_TRACK"
+                          ? `On track • ${formatElapsedDuration(
+                              sla.remainingMilliseconds
+                            )} remaining`
+                          : "Incident start time unavailable"}
+                  </Text>
+
+                  <Text style={styles.slaTarget}>
+                    Configured target: {sla.targetMinutes} minutes
+                    for {` ${incident.severity}`} incidents
+                  </Text>
                 </View>
 
                 <Text style={styles.stageText}>
@@ -872,5 +1063,89 @@ const styles = StyleSheet.create({
     color: "#93c5fd",
     fontSize: 15,
     fontWeight: "800",
+  },
+
+  slaEscalationWarning: {
+    color: "#fca5a5",
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 25,
+    marginTop: 12,
+  },
+
+  slaPanel: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  slaPanelOnTrack: {
+    backgroundColor: "#052e24",
+    borderColor: "#22c55e",
+  },
+
+  slaPanelAtRisk: {
+    backgroundColor: "#3f2a08",
+    borderColor: "#f59e0b",
+  },
+
+  slaPanelBreached: {
+    backgroundColor: "#450a0a",
+    borderColor: "#ef4444",
+  },
+
+  slaPanelUnknown: {
+    backgroundColor: "#1e293b",
+    borderColor: "#64748b",
+  },
+
+  slaHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  slaTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  slaTimer: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  slaStatus: {
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 23,
+    marginTop: 10,
+  },
+
+  slaStatusOnTrack: {
+    color: "#4ade80",
+  },
+
+  slaStatusAtRisk: {
+    color: "#fbbf24",
+  },
+
+  slaStatusBreached: {
+    color: "#fca5a5",
+  },
+
+  slaStatusUnknown: {
+    color: "#cbd5e1",
+  },
+
+  slaTarget: {
+    color: "#94a3b8",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 7,
   },
 });
