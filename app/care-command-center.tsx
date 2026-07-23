@@ -177,10 +177,16 @@ export default function CareCommandCenter() {
     siteId,
     siteName,
     siteLocation,
+    focusIncidentId,
+    focusResidentId,
+    focusRoom,
   } = useLocalSearchParams<{
     siteId?: string;
     siteName?: string;
     siteLocation?: string;
+    focusIncidentId?: string;
+    focusResidentId?: string;
+    focusRoom?: string;
   }>();
 
   const selectedSiteId =
@@ -197,6 +203,21 @@ export default function CareCommandCenter() {
     typeof siteLocation === "string" && siteLocation.trim()
       ? siteLocation.trim()
       : "London";
+
+  const requestedIncidentId =
+    typeof focusIncidentId === "string"
+      ? focusIncidentId.trim()
+      : "";
+
+  const requestedResidentId =
+    typeof focusResidentId === "string"
+      ? focusResidentId.trim()
+      : "";
+
+  const requestedRoom =
+    typeof focusRoom === "string"
+      ? focusRoom.trim()
+      : "";
 
   const openResidentProfile = (resident: any) => {
     const residentId = String(resident.room)
@@ -509,6 +530,86 @@ useEffect(() => {
 
   return unsub;
 }, [selectedSiteId]);
+
+useEffect(() => {
+  if (!requestedIncidentId) {
+    return;
+  }
+
+  const targetIncident = incidents.find(
+    (item: any) =>
+      String(
+        item?.id ??
+          item?.incidentId ??
+          item?.eventId ??
+          ""
+      ).trim() === requestedIncidentId
+  );
+
+  if (!targetIncident) {
+    return;
+  }
+
+  setSelectedIncidentId(requestedIncidentId);
+
+  const targetResident = realResidents.find(
+    (resident: any) => {
+      const residentId = String(
+        resident?.id ?? ""
+      ).trim();
+
+      const residentRoom = String(
+        resident?.room ?? ""
+      ).trim();
+
+      const incidentResidentId = String(
+        targetIncident?.residentId ?? ""
+      ).trim();
+
+      const incidentRoom = String(
+        targetIncident?.room ?? ""
+      ).trim();
+
+      return (
+        (requestedResidentId &&
+          residentId === requestedResidentId) ||
+        (incidentResidentId &&
+          residentId === incidentResidentId) ||
+        (requestedRoom &&
+          residentRoom === requestedRoom) ||
+        (incidentRoom &&
+          residentRoom === incidentRoom)
+      );
+    }
+  );
+
+  if (targetResident?.id) {
+    setSelectedResidentId(
+      String(targetResident.id)
+    );
+  }
+
+  console.log(
+    "GLOBAL INCIDENT → COMMAND CENTER FOCUS:",
+    {
+      siteId: selectedSiteId,
+      incidentId: requestedIncidentId,
+      residentId:
+        targetResident?.id ??
+        requestedResidentId,
+      room:
+        targetResident?.room ??
+        requestedRoom,
+    }
+  );
+  }, [
+    requestedIncidentId,
+    requestedResidentId,
+    requestedRoom,
+    incidents,
+    realResidents,
+    selectedSiteId,
+  ]);
 
 const updateCareEventStageForRoom = async (
     room: string,

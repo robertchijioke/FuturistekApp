@@ -2,11 +2,11 @@ import { useRouter } from "expo-router";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import { db } from "../lib/firebase";
@@ -21,6 +21,7 @@ type GlobalIncident = {
   id: string;
   siteId: string;
   room: string;
+  residentId: string;
   residentName: string;
   type: string;
   severity: string;
@@ -125,6 +126,9 @@ export default function GlobalIncidentOperations() {
               room:
                 String(data.room ?? "Unknown room").trim() ||
                 "Unknown room",
+
+              residentId:
+                String(data.residentId ?? "").trim(),
 
               residentName:
                 String(
@@ -369,7 +373,17 @@ export default function GlobalIncidentOperations() {
 
               <Pressable
                 onPress={() =>
-                  openSiteCommandCentre(incident)
+                  router.push({
+                    pathname: "/care-command-center",
+                    params: {
+                      siteId: site.id,
+                      siteName: site.name,
+                      siteLocation: site.location,
+                      focusIncidentId: incident.id,
+                      focusResidentId: incident.residentId,
+                      focusRoom: incident.room,
+                    },
+                  } as any)
                 }
                 style={styles.openButton}
               >
