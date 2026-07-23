@@ -172,6 +172,16 @@ const getSlaDetails = (
   };
 };
 
+const slaPriority: Record<SlaState, number> = {
+  BREACHED: 4,
+  AT_RISK: 3,
+  ON_TRACK: 2,
+  UNKNOWN: 1,
+};
+
+const getSlaPriority = (state: SlaState) =>
+  slaPriority[state] ?? 0;
+
 const getTimestamp = (value: any): number => {
   if (typeof value?.toMillis === "function") {
     return value.toMillis();
@@ -337,37 +347,74 @@ export default function GlobalIncidentOperations() {
   }, []);
 
   const activeIncidents = useMemo(
-  () =>
-    allIncidents
-      .filter(
-        (incident) =>
-          incident.status === "active" &&
-          Boolean(careSites[incident.siteId])
-      )
-      .sort((firstIncident, secondIncident) => {
-        const severityDifference =
-          getSeverityPriority(secondIncident.severity) -
-          getSeverityPriority(firstIncident.severity);
+    () =>
+      allIncidents
+        .filter(
+          (incident) =>
+            incident.status === "active" &&
+            Boolean(careSites[incident.siteId])
+        )
+        .sort((firstIncident, secondIncident) => {
+          const firstSla = getSlaDetails(
+            firstIncident.createdAt,
+            firstIncident.severity,
+            currentTime
+          );
 
-        if (severityDifference !== 0) {
-          return severityDifference;
-        }
+          const secondSla = getSlaDetails(
+            secondIncident.createdAt,
+            secondIncident.severity,
+            currentTime
+          );
 
-        const stageDifference =
-          getStagePriority(firstIncident.stage) -
-          getStagePriority(secondIncident.stage);
+          const slaDifference =
+            getSlaPriority(secondSla.state) -
+            getSlaPriority(firstSla.state);
 
-        if (stageDifference !== 0) {
-          return stageDifference;
-        }
+          if (slaDifference !== 0) {
+            return slaDifference;
+          }
 
-        return (
-          getTimestamp(secondIncident.createdAt) -
-          getTimestamp(firstIncident.createdAt)
-        );
-      }),
-  [allIncidents, careSites]
-);
+          const severityDifference =
+            getSeverityPriority(secondIncident.severity) -
+            getSeverityPriority(firstIncident.severity);
+
+          if (severityDifference !== 0) {
+            return severityDifference;
+          }
+
+          const firstAwaitingAssignment =
+            !firstIncident.assignedStaff ||
+            firstIncident.assignedStaff ===
+              "Awaiting assignment";
+
+          const secondAwaitingAssignment =
+            !secondIncident.assignedStaff ||
+            secondIncident.assignedStaff ===
+              "Awaiting assignment";
+
+          if (
+            firstAwaitingAssignment !==
+            secondAwaitingAssignment
+          ) {
+            return firstAwaitingAssignment ? -1 : 1;
+          }
+
+          const stageDifference =
+            getStagePriority(firstIncident.stage) -
+            getStagePriority(secondIncident.stage);
+
+          if (stageDifference !== 0) {
+            return stageDifference;
+          }
+
+          return (
+            getTimestamp(secondIncident.createdAt) -
+            getTimestamp(firstIncident.createdAt)
+          );
+        }),
+    [allIncidents, careSites, currentTime]
+  );
 
   const affectedSiteCount = useMemo(
     () =>
@@ -614,9 +661,30 @@ const breachedIncidentCount = useMemo(
                   {incident.severity}
                 </Text>
 
-                <Text style={styles.priorityText}>
-                  Priority #{activeIncidents.indexOf(incident) + 1}
-                </Text>
+                <View style={styles.priorityInfo}>
+                  <Text style={styles.priorityText}>
+                    Priority #{activeIncidents.indexOf(incident) + 1}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.priorityReason,
+                      sla.state === "BREACHED"
+                        ? styles.priorityReasonBreached
+                        : sla.state === "AT_RISK"
+                          ? styles.priorityReasonAtRisk
+                          : styles.priorityReasonStandard,
+                    ]}
+                  >
+                    {sla.state === "BREACHED"
+                      ? "SLA breached"
+                      : sla.state === "AT_RISK"
+                        ? "SLA at risk"
+                        : sla.state === "ON_TRACK"
+                          ? "On track"
+                          : "Time unknown"}
+                  </Text>
+                </View>
               </View>
 
               <Text style={styles.detailText}>
@@ -1147,5 +1215,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: 7,
+  },
+
+  priorityInfo: {
+    alignItems: "flex-end",
+  },
+
+  priorityReason: {
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+
+  priorityReasonBreached: {
+    color: "#fca5a5",
+  },
+
+  priorityReasonAtRisk: {
+    color: "#fbbf24",
+  },
+
+  priorityReasonStandard: {
+    color: "#4ade80",
   },
 });
