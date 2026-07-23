@@ -393,7 +393,9 @@ export default function MissionControl() {
       })}
 
       <Pressable
-        onPress={() => router.push("/care-command-center")}
+        onPress={() =>
+          router.push("/global-incident-operations" as any)
+        }
         style={styles.enterpriseButton}
       >
         <Text style={styles.enterpriseButtonText}>

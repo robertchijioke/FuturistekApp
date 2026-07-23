@@ -1,0 +1,592 @@
+import { useRouter } from "expo-router";
+import { collection, onSnapshot } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import {
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
+
+import { db } from "../lib/firebase";
+
+type CareSite = {
+  id: string;
+  name: string;
+  location: string;
+};
+
+type GlobalIncident = {
+  id: string;
+  siteId: string;
+  room: string;
+  residentName: string;
+  type: string;
+  severity: string;
+  stage: string;
+  status: string;
+  assignedStaff: string;
+  createdAt?: any;
+};
+
+const getTimestamp = (value: any): number => {
+  if (typeof value?.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  const parsedDate = value ? new Date(value) : null;
+
+  return parsedDate && !Number.isNaN(parsedDate.getTime())
+    ? parsedDate.getTime()
+    : 0;
+};
+
+const formatTimestamp = (value: any): string => {
+  const timestamp = getTimestamp(value);
+
+  if (!timestamp) {
+    return "Time unavailable";
+  }
+
+  return new Date(timestamp).toLocaleString();
+};
+
+export default function GlobalIncidentOperations() {
+  const router = useRouter();
+
+  const [careSites, setCareSites] =
+    useState<Record<string, CareSite>>({});
+
+  const [allIncidents, setAllIncidents] =
+    useState<GlobalIncident[]>([]);
+
+  useEffect(() => {
+    const unsubscribeSites = onSnapshot(
+      collection(db, "careSites"),
+      (snapshot) => {
+        const enabledSites: Record<string, CareSite> = {};
+
+        snapshot.docs.forEach((document) => {
+          const data = document.data();
+
+          if (data.enabled === false) {
+            return;
+          }
+
+          enabledSites[document.id] = {
+            id: document.id,
+            name:
+              String(data.name ?? "Unnamed Care Site").trim() ||
+              "Unnamed Care Site",
+            location:
+              String(data.location ?? "Unknown location").trim() ||
+              "Unknown location",
+          };
+        });
+
+        setCareSites(enabledSites);
+
+        console.log("GLOBAL OPERATIONS CARE SITES:", {
+          count: Object.keys(enabledSites).length,
+          sites: Object.values(enabledSites),
+        });
+      },
+      (error) => {
+        console.error(
+          "GLOBAL OPERATIONS CARE SITES ERROR:",
+          error
+        );
+      }
+    );
+
+    return unsubscribeSites;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeIncidents = onSnapshot(
+      collection(db, "careEvents"),
+      (snapshot) => {
+        const loadedIncidents: GlobalIncident[] =
+          snapshot.docs.map((document) => {
+            const data = document.data();
+
+            return {
+              id: document.id,
+
+              siteId:
+                String(data.siteId ?? "site-1").trim() ||
+                "site-1",
+
+              room:
+                String(data.room ?? "Unknown room").trim() ||
+                "Unknown room",
+
+              residentName:
+                String(
+                  data.residentName ?? "Unknown resident"
+                ).trim() || "Unknown resident",
+
+              type:
+                String(data.type ?? "Incident").trim() ||
+                "Incident",
+
+              severity:
+                String(data.severity ?? "HIGH")
+                  .trim()
+                  .toUpperCase(),
+
+              stage:
+                String(data.stage ?? "ALERT_CREATED")
+                  .trim()
+                  .toUpperCase(),
+
+              status:
+                String(data.status ?? "")
+                  .trim()
+                  .toLowerCase(),
+
+              assignedStaff:
+                String(
+                  data.assignedStaff ??
+                    "Awaiting assignment"
+                ).trim() || "Awaiting assignment",
+
+              createdAt: data.createdAt,
+            };
+          });
+
+        setAllIncidents(loadedIncidents);
+
+        console.log("GLOBAL OPERATIONS INCIDENTS LOADED:", {
+          count: loadedIncidents.length,
+        });
+      },
+      (error) => {
+        console.error(
+          "GLOBAL OPERATIONS INCIDENTS ERROR:",
+          error
+        );
+      }
+    );
+
+    return unsubscribeIncidents;
+  }, []);
+
+  const activeIncidents = useMemo(
+    () =>
+      allIncidents
+        .filter(
+          (incident) =>
+            incident.status === "active" &&
+            Boolean(careSites[incident.siteId])
+        )
+        .sort(
+          (firstIncident, secondIncident) =>
+            getTimestamp(secondIncident.createdAt) -
+            getTimestamp(firstIncident.createdAt)
+        ),
+    [allIncidents, careSites]
+  );
+
+  const affectedSiteCount = useMemo(
+    () =>
+      new Set(
+        activeIncidents.map(
+          (incident) => incident.siteId
+        )
+      ).size,
+    [activeIncidents]
+  );
+
+  const openSiteCommandCentre = (
+    incident: GlobalIncident
+  ) => {
+    const site = careSites[incident.siteId];
+
+    if (!site) {
+      return;
+    }
+
+    router.push({
+      pathname: "/care-command-center",
+      params: {
+        siteId: site.id,
+        siteName: site.name,
+        siteLocation: site.location,
+      },
+    } as any);
+  };
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
+      <Pressable
+        onPress={() => router.back()}
+        style={styles.backButton}
+      >
+        <Text style={styles.backButtonText}>
+          ← Mission Control
+        </Text>
+      </Pressable>
+
+      <Text style={styles.title}>
+        🚨 Global Incident Operations
+      </Text>
+
+      <Text style={styles.subtitle}>
+        Live cross-site emergency monitoring and dispatch
+      </Text>
+
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryValue}>
+            {Object.keys(careSites).length}
+          </Text>
+          <Text style={styles.summaryLabel}>
+            Enabled Sites
+          </Text>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <Text
+            style={[
+              styles.summaryValue,
+              activeIncidents.length > 0 &&
+                styles.warningText,
+            ]}
+          >
+            {activeIncidents.length}
+          </Text>
+          <Text style={styles.summaryLabel}>
+            Active Incidents
+          </Text>
+        </View>
+
+        <View style={styles.summaryCardWide}>
+          <Text style={styles.summaryValue}>
+            {affectedSiteCount}
+          </Text>
+          <Text style={styles.summaryLabel}>
+            Sites Requiring Attention
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.aiCard}>
+        <Text style={styles.sectionTitle}>
+          🤖 AI Operations Summary
+        </Text>
+
+        <Text style={styles.aiText}>
+          {activeIncidents.length > 0
+            ? `${activeIncidents.length} active ${
+                activeIncidents.length === 1
+                  ? "incident is"
+                  : "incidents are"
+              } currently being managed across ${affectedSiteCount} ${
+                affectedSiteCount === 1
+                  ? "site"
+                  : "sites"
+              }.`
+            : "All enabled care sites are operational. No active emergency incidents currently require cross-site coordination."}
+        </Text>
+
+        <Text style={styles.liveText}>
+          ● Global monitoring live
+        </Text>
+      </View>
+
+      <Text style={styles.sectionHeading}>
+        🚑 Live Incident Queue
+      </Text>
+
+      {activeIncidents.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>
+            ✅ No active global incidents
+          </Text>
+
+          <Text style={styles.emptyText}>
+            All enabled care sites are currently operating
+            without an active emergency response.
+          </Text>
+        </View>
+      ) : (
+        activeIncidents.map((incident) => {
+          const site = careSites[incident.siteId];
+
+          return (
+            <View
+              key={incident.id}
+              style={styles.incidentCard}
+            >
+              <View style={styles.incidentHeader}>
+                <View style={styles.incidentHeaderText}>
+                  <Text style={styles.siteName}>
+                    {site?.name ?? "Unknown site"}
+                  </Text>
+
+                  <Text style={styles.location}>
+                    📍 {site?.location ?? "Unknown location"}
+                  </Text>
+                </View>
+
+                <Text style={styles.activeBadge}>
+                  ● ACTIVE
+                </Text>
+              </View>
+
+              <Text style={styles.incidentTitle}>
+                {incident.type}
+              </Text>
+
+              <Text style={styles.detailText}>
+                🏠 Room: {incident.room}
+              </Text>
+
+              <Text style={styles.detailText}>
+                👤 Resident: {incident.residentName}
+              </Text>
+
+              <Text style={styles.detailText}>
+                📊 Stage: {incident.stage}
+              </Text>
+
+              <Text style={styles.detailText}>
+                🧑‍⚕️ Staff: {incident.assignedStaff}
+              </Text>
+
+              <Text style={styles.detailText}>
+                🕒 {formatTimestamp(incident.createdAt)}
+              </Text>
+
+              <Pressable
+                onPress={() =>
+                  openSiteCommandCentre(incident)
+                }
+                style={styles.openButton}
+              >
+                <Text style={styles.openButtonText}>
+                  Open Site Command Centre →
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#061826",
+  },
+
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 64,
+    paddingBottom: 80,
+  },
+
+  backButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#1e293b",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginBottom: 24,
+  },
+
+  backButtonText: {
+    color: "#cbd5e1",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  title: {
+    color: "#ffffff",
+    fontSize: 43,
+    fontWeight: "900",
+    lineHeight: 50,
+  },
+
+  subtitle: {
+    color: "#93c5fd",
+    fontSize: 20,
+    lineHeight: 29,
+    marginTop: 13,
+    marginBottom: 28,
+  },
+
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+
+  summaryCard: {
+    width: "48%",
+    backgroundColor: "#143453",
+    borderColor: "#2563eb",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 22,
+    marginBottom: 14,
+  },
+
+  summaryCardWide: {
+    width: "100%",
+    backgroundColor: "#143453",
+    borderColor: "#2563eb",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 22,
+  },
+
+  summaryValue: {
+    color: "#ffffff",
+    fontSize: 42,
+    fontWeight: "900",
+  },
+
+  warningText: {
+    color: "#fbbf24",
+  },
+
+  summaryLabel: {
+    color: "#cbd5e1",
+    fontSize: 17,
+    marginTop: 8,
+  },
+
+  aiCard: {
+    borderColor: "#7c3aed",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 24,
+    marginTop: 26,
+  },
+
+  sectionTitle: {
+    color: "#ffffff",
+    fontSize: 26,
+    fontWeight: "900",
+  },
+
+  aiText: {
+    color: "#cbd5e1",
+    fontSize: 18,
+    lineHeight: 28,
+    marginTop: 17,
+  },
+
+  liveText: {
+    color: "#22c55e",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 20,
+  },
+
+  sectionHeading: {
+    color: "#ffffff",
+    fontSize: 31,
+    fontWeight: "900",
+    marginTop: 34,
+    marginBottom: 18,
+  },
+
+  emptyCard: {
+    borderColor: "#22c55e",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 25,
+  },
+
+  emptyTitle: {
+    color: "#22c55e",
+    fontSize: 25,
+    fontWeight: "900",
+  },
+
+  emptyText: {
+    color: "#cbd5e1",
+    fontSize: 18,
+    lineHeight: 28,
+    marginTop: 15,
+  },
+
+  incidentCard: {
+    borderColor: "#f59e0b",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 23,
+    marginBottom: 20,
+  },
+
+  incidentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+
+  incidentHeaderText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  siteName: {
+    color: "#ffffff",
+    fontSize: 25,
+    fontWeight: "900",
+  },
+
+  location: {
+    color: "#93c5fd",
+    fontSize: 17,
+    marginTop: 7,
+  },
+
+  activeBadge: {
+    color: "#f59e0b",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  incidentTitle: {
+    color: "#fbbf24",
+    fontSize: 25,
+    fontWeight: "900",
+    marginTop: 22,
+    marginBottom: 14,
+  },
+
+  detailText: {
+    color: "#cbd5e1",
+    fontSize: 17,
+    lineHeight: 28,
+  },
+
+  openButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 15,
+    paddingVertical: 17,
+    paddingHorizontal: 16,
+    marginTop: 22,
+  },
+
+  openButtonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+});
