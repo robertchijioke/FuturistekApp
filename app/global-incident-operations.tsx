@@ -3,8 +3,7 @@ import {
   collection,
   doc,
   onSnapshot,
-  serverTimestamp,
-  updateDoc,
+  serverTimestamp, writeBatch,
 } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -39,6 +38,26 @@ type GlobalIncident = {
   enterpriseEscalationAcknowledged: boolean;
   enterpriseEscalationAcknowledgedAt?: any;
   enterpriseEscalationAcknowledgedBy: string;
+};
+
+type EnterpriseEscalationAudit = {
+  id: string;
+  action: string;
+  incidentId: string;
+  siteId: string;
+  siteName: string;
+  siteLocation: string;
+  room: string;
+  residentId: string;
+  residentName: string;
+  severity: string;
+  stage: string;
+  acknowledgedBy: string;
+  acknowledgedAt?: any;
+  slaState: SlaState;
+  elapsedMilliseconds: number;
+  targetMinutes: number;
+  responseProgress: number;
 };
 
 const responseStages = [
@@ -232,6 +251,11 @@ export default function GlobalIncidentOperations() {
   );
 
   const [
+    escalationAudit,
+    setEscalationAudit,
+  ] = useState<EnterpriseEscalationAudit[]>([]);
+
+  const [
     acknowledgingIncidentId,
     setAcknowledgingIncidentId,
   ] = useState<string | null>(null);
@@ -372,6 +396,118 @@ export default function GlobalIncidentOperations() {
     return unsubscribeIncidents;
   }, []);
 
+  useEffect(() => {
+    const unsubscribeAudit = onSnapshot(
+      collection(db, "enterpriseEscalationAudit"),
+      (snapshot) => {
+        const loadedAuditEvents =
+          snapshot.docs
+            .map((document) => {
+              const data = document.data();
+
+              return {
+                id: document.id,
+
+                action: String(
+                  data.action ??
+                    "ENTERPRISE_ESCALATION_ACKNOWLEDGED"
+                ),
+
+                incidentId: String(
+                  data.incidentId ?? ""
+                ),
+
+                siteId: String(
+                  data.siteId ?? "site-1"
+                ),
+
+                siteName: String(
+                  data.siteName ?? "Unknown site"
+                ),
+
+                siteLocation: String(
+                  data.siteLocation ??
+                    "Unknown location"
+                ),
+
+                room: String(
+                  data.room ?? "Unknown room"
+                ),
+
+                residentId: String(
+                  data.residentId ?? ""
+                ),
+
+                residentName: String(
+                  data.residentName ??
+                    "Unknown resident"
+                ),
+
+                severity: String(
+                  data.severity ?? "HIGH"
+                ).toUpperCase(),
+
+                stage: String(
+                  data.stage ?? "ALERT_CREATED"
+                ).toUpperCase(),
+
+                acknowledgedBy: String(
+                  data.acknowledgedBy ??
+                    "Global Operations"
+                ),
+
+                acknowledgedAt:
+                  data.acknowledgedAt ??
+                  data.createdAt,
+
+                slaState:
+                  String(
+                    data.slaState ?? "UNKNOWN"
+                  ) as SlaState,
+
+                elapsedMilliseconds: Number(
+                  data.elapsedMilliseconds ?? 0
+                ),
+
+                targetMinutes: Number(
+                  data.targetMinutes ?? 0
+                ),
+
+                responseProgress: Number(
+                  data.responseProgress ?? 0
+                ),
+              };
+            })
+            .sort(
+              (firstEvent, secondEvent) =>
+                getTimestamp(
+                  secondEvent.acknowledgedAt
+                ) -
+                getTimestamp(
+                  firstEvent.acknowledgedAt
+                )
+            );
+
+        setEscalationAudit(loadedAuditEvents);
+
+        console.log(
+          "GLOBAL ESCALATION AUDIT LOADED:",
+          {
+            count: loadedAuditEvents.length,
+          }
+        );
+      },
+      (error) => {
+        console.error(
+          "GLOBAL ESCALATION AUDIT ERROR:",
+          error
+        );
+      }
+    );
+
+    return unsubscribeAudit;
+  }, []);
+
   const activeIncidents = useMemo(
     () =>
       allIncidents
@@ -487,48 +623,118 @@ const breachedIncidentCount = useMemo(
   [activeIncidents, currentTime]
 );
 
+const visibleAuditEvents = useMemo(
+  () =>
+    escalationAudit
+      .filter((event) =>
+        Boolean(careSites[event.siteId])
+      )
+      .slice(0, 10),
+  [escalationAudit, careSites]
+);
+
 const acknowledgeEnterpriseEscalation = async (
-    incident: GlobalIncident
-  ) => {
-    if (
-      incident.enterpriseEscalationAcknowledged ||
-      acknowledgingIncidentId === incident.id
-    ) {
-      return;
-    }
+  incident: GlobalIncident
+) => {
+  if (
+    incident.enterpriseEscalationAcknowledged ||
+    acknowledgingIncidentId === incident.id
+  ) {
+    return;
+  }
 
-    try {
-      setAcknowledgingIncidentId(incident.id);
+  try {
+    setAcknowledgingIncidentId(incident.id);
 
-      await updateDoc(
-        doc(db, "careEvents", incident.id),
-        {
-          enterpriseEscalationAcknowledged: true,
-          enterpriseEscalationAcknowledgedAt:
-            serverTimestamp(),
-          enterpriseEscalationAcknowledgedBy:
-            "Global Operations",
-        }
-      );
+    const site = careSites[incident.siteId];
 
-      Alert.alert(
-        "Escalation acknowledged",
-        "Global Operations has acknowledged this escalation. The clinical response stage has not been changed."
-      );
-    } catch (error) {
-      console.error(
-        "GLOBAL ESCALATION ACKNOWLEDGEMENT ERROR:",
-        error
-      );
+    const sla = getSlaDetails(
+      incident.createdAt,
+      incident.severity,
+      Date.now()
+    );
 
-      Alert.alert(
-        "Acknowledgement failed",
-        "The escalation could not be acknowledged. Check the connection and try again."
-      );
-    } finally {
-      setAcknowledgingIncidentId(null);
-    }
-  };
+    const batch = writeBatch(db);
+
+    const incidentReference = doc(
+      db,
+      "careEvents",
+      incident.id
+    );
+
+    const auditReference = doc(
+      collection(
+        db,
+        "enterpriseEscalationAudit"
+      )
+    );
+
+    const acknowledgedAt = serverTimestamp();
+
+    batch.update(incidentReference, {
+      enterpriseEscalationAcknowledged: true,
+      enterpriseEscalationAcknowledgedAt:
+        acknowledgedAt,
+      enterpriseEscalationAcknowledgedBy:
+        "Global Operations",
+    });
+
+    batch.set(auditReference, {
+      action:
+        "ENTERPRISE_ESCALATION_ACKNOWLEDGED",
+
+      incidentId: incident.id,
+      siteId: incident.siteId,
+
+      siteName:
+        site?.name ?? "Unknown site",
+
+      siteLocation:
+        site?.location ?? "Unknown location",
+
+      room: incident.room,
+      residentId: incident.residentId,
+      residentName: incident.residentName,
+      severity: incident.severity,
+      stage: incident.stage,
+
+      acknowledgedBy: "Global Operations",
+      acknowledgedAt,
+
+      slaState: sla.state,
+
+      elapsedMilliseconds:
+        sla.elapsedMilliseconds,
+
+      targetMinutes: sla.targetMinutes,
+
+      responseProgress:
+        getStageProgress(incident.stage),
+
+      createdAt: acknowledgedAt,
+      source: "GLOBAL_INCIDENT_OPERATIONS",
+    });
+
+    await batch.commit();
+
+    Alert.alert(
+      "Escalation acknowledged",
+      "Global Operations has acknowledged this escalation. A permanent audit event has been recorded, and the clinical response stage has not been changed."
+    );
+  } catch (error) {
+    console.error(
+      "GLOBAL ESCALATION ACKNOWLEDGEMENT ERROR:",
+      error
+    );
+
+    Alert.alert(
+      "Acknowledgement failed",
+      "The escalation could not be acknowledged. Check the connection and try again."
+    );
+  } finally {
+    setAcknowledgingIncidentId(null);
+  }
+};
 
   const openSiteCommandCentre = (
     incident: GlobalIncident
@@ -927,6 +1133,78 @@ const acknowledgeEnterpriseEscalation = async (
             </View>
           );
         })
+      )}
+
+      <Text style={styles.sectionHeading}>
+        🧾 Enterprise Escalation Audit
+      </Text>
+
+      {visibleAuditEvents.length === 0 ? (
+        <View style={styles.auditEmptyCard}>
+          <Text style={styles.auditEmptyTitle}>
+            No audit events recorded
+          </Text>
+
+          <Text style={styles.auditEmptyText}>
+            Enterprise escalation acknowledgements
+            will appear here permanently.
+          </Text>
+        </View>
+      ) : (
+        visibleAuditEvents.map((event) => (
+          <View
+            key={event.id}
+            style={styles.auditCard}
+          >
+            <View style={styles.auditHeader}>
+              <Text style={styles.auditSiteName}>
+                {event.siteName}
+              </Text>
+
+              <Text style={styles.auditBadge}>
+                ACKNOWLEDGED
+              </Text>
+            </View>
+
+            <Text style={styles.auditLocation}>
+              📍 {event.siteLocation}
+            </Text>
+
+            <Text style={styles.auditIncident}>
+              🚨 {event.severity} • {event.room}
+            </Text>
+
+            <Text style={styles.auditDetail}>
+              👤 {event.residentName}
+            </Text>
+
+            <Text style={styles.auditDetail}>
+              📊 Stage at acknowledgement:{" "}
+              {formatStageLabel(event.stage)}
+            </Text>
+
+            <Text style={styles.auditDetail}>
+              ⏱ SLA state:{" "}
+              {event.slaState.replace("_", " ")}
+            </Text>
+
+            <Text style={styles.auditDetail}>
+              📈 Response progress:{" "}
+              {event.responseProgress}%
+            </Text>
+
+            <Text style={styles.auditDetail}>
+              ✅ Acknowledged by{" "}
+              {event.acknowledgedBy}
+            </Text>
+
+            <Text style={styles.auditTime}>
+              {formatTimestamp(
+                event.acknowledgedAt
+              )}
+            </Text>
+          </View>
+        ))
       )}
     </ScrollView>
   );
@@ -1399,5 +1677,80 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
     fontSize: 14,
     marginTop: 5,
+  },
+
+  auditEmptyCard: {
+    borderColor: "#64748b",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 22,
+  },
+
+  auditEmptyTitle: {
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+  },
+
+  auditEmptyText: {
+    color: "#94a3b8",
+    fontSize: 16,
+    lineHeight: 25,
+    marginTop: 10,
+  },
+
+  auditCard: {
+    backgroundColor: "#052e24",
+    borderColor: "#22c55e",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 21,
+    marginBottom: 16,
+  },
+
+  auditHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+
+  auditSiteName: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+    paddingRight: 10,
+  },
+
+  auditBadge: {
+    color: "#4ade80",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  auditLocation: {
+    color: "#93c5fd",
+    fontSize: 16,
+    marginTop: 7,
+  },
+
+  auditIncident: {
+    color: "#fbbf24",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 16,
+  },
+
+  auditDetail: {
+    color: "#d1fae5",
+    fontSize: 15,
+    lineHeight: 24,
+    marginTop: 5,
+  },
+
+  auditTime: {
+    color: "#94a3b8",
+    fontSize: 14,
+    marginTop: 12,
   },
 });
