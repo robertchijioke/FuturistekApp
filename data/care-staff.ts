@@ -4,6 +4,7 @@ export type CareStaffMember = {
   status: string;
   assignedRoom: string;
   location: string;
+  siteId: string;
 };
 
 export const baseStaff: CareStaffMember[] = [
@@ -13,6 +14,7 @@ export const baseStaff: CareStaffMember[] = [
     status: "AVAILABLE",
     assignedRoom: "",
     location: "Nurse Station",
+    siteId: "site-1",
   },
   {
     name: "James",
@@ -20,6 +22,7 @@ export const baseStaff: CareStaffMember[] = [
     status: "AVAILABLE",
     assignedRoom: "",
     location: "Nurse Station",
+    siteId: "site-1",
   },
   {
     name: "Sarah",
@@ -27,5 +30,6 @@ export const baseStaff: CareStaffMember[] = [
     status: "AVAILABLE",
     assignedRoom: "",
     location: "Nurse Station",
+    siteId: "site-1",
   },
 ];

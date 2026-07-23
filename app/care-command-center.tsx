@@ -892,7 +892,11 @@ const updateCareEventStageForRoom = async (
 
   const activeIncidents = residents.filter((r) => r.status !== "SAFE");
 
-  const staff = baseStaff.map((member) => {
+  const siteBaseStaff = baseStaff.filter(
+    (member) => member.siteId === selectedSiteId
+  );
+
+  const staff = siteBaseStaff.map((member) => {
     const assignedIncident = activeIncidents.find(
       (activeIncident: any) =>
         activeIncident.assignedStaff === member.name &&

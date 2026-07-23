@@ -21,6 +21,11 @@ type CareSite = {
   staffOnDuty: number;
 };
 
+const getStaffCountForSite = (siteId: string) =>
+  baseStaff.filter(
+    (member) => member.siteId === siteId
+  ).length;
+
 const initialCareSites: CareSite[] = [
   {
     id: "site-1",
@@ -29,7 +34,7 @@ const initialCareSites: CareSite[] = [
     status: "ATTENTION",
     activeIncidents: 1,
     residents: 7,
-    staffOnDuty: baseStaff.length,
+    staffOnDuty: getStaffCountForSite("site-1"),
   },
   {
     id: "site-2",
@@ -38,7 +43,7 @@ const initialCareSites: CareSite[] = [
     status: "OPERATIONAL",
     activeIncidents: 0,
     residents: 12,
-    staffOnDuty: 6,
+    staffOnDuty: getStaffCountForSite("site-2"),
   },
   {
     id: "site-3",
@@ -47,7 +52,7 @@ const initialCareSites: CareSite[] = [
     status: "OPERATIONAL",
     activeIncidents: 0,
     residents: 24,
-    staffOnDuty: 11,
+    staffOnDuty: getStaffCountForSite("site-3"),
   },
 ];
 
