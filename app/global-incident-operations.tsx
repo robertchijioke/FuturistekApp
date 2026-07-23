@@ -31,6 +31,41 @@ type GlobalIncident = {
   createdAt?: any;
 };
 
+const responseStages = [
+  "ALERT_CREATED",
+  "STAFF_ASSIGNED",
+  "EN_ROUTE",
+  "AT_SCENE",
+  "ASSESSMENT",
+  "AMBULANCE_REQUESTED",
+  "TRANSPORT",
+  "RESOLVED",
+];
+
+const formatStageLabel = (stage: string) =>
+  stage
+    .toLowerCase()
+    .split("_")
+    .map(
+      (word) =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+    )
+    .join(" ");
+
+const getStageProgress = (stage: string) => {
+  const stageIndex = responseStages.indexOf(
+    stage.toUpperCase()
+  );
+
+  if (stageIndex < 0) {
+    return 0;
+  }
+
+  return Math.round(
+    ((stageIndex + 1) / responseStages.length) * 100
+  );
+};
+
 const getTimestamp = (value: any): number => {
   if (typeof value?.toMillis === "function") {
     return value.toMillis();
@@ -359,9 +394,34 @@ export default function GlobalIncidentOperations() {
                 👤 Resident: {incident.residentName}
               </Text>
 
-              <Text style={styles.detailText}>
-                📊 Stage: {incident.stage}
-              </Text>
+              <View style={styles.progressSection}>
+                <View style={styles.progressHeader}>
+                  <Text style={styles.progressLabel}>
+                    Response Progress
+                  </Text>
+
+                  <Text style={styles.progressPercentage}>
+                    {getStageProgress(incident.stage)}%
+                  </Text>
+                </View>
+
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${getStageProgress(
+                          incident.stage
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <Text style={styles.stageText}>
+                  📊 {formatStageLabel(incident.stage)}
+                </Text>
+              </View>
 
               <Text style={styles.detailText}>
                 🧑‍⚕️ Staff: {incident.assignedStaff}
@@ -602,5 +662,49 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
     textAlign: "center",
+  },
+
+  progressSection: {
+    marginTop: 18,
+    marginBottom: 8,
+  },
+
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  progressLabel: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  progressPercentage: {
+    color: "#fbbf24",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  progressTrack: {
+    height: 12,
+    backgroundColor: "#1e293b",
+    borderRadius: 999,
+    overflow: "hidden",
+    marginTop: 10,
+  },
+
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#22c55e",
+    borderRadius: 999,
+  },
+
+  stageText: {
+    color: "#93c5fd",
+    fontSize: 17,
+    fontWeight: "800",
+    marginTop: 10,
   },
 });
