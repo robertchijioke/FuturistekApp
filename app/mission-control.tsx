@@ -63,6 +63,95 @@ export default function MissionControl() {
     useState<CareSite[]>(initialCareSites);
 
   useEffect(() => {
+    const unsubscribeCareSites = onSnapshot(
+      collection(db, "careSites"),
+      (snapshot) => {
+        if (snapshot.empty) {
+          console.warn(
+            "MISSION CONTROL CARE SITES: No Firestore sites found"
+          );
+          return;
+        }
+
+        setCareSites((currentSites) => {
+          const currentSitesById = new Map(
+            currentSites.map((site) => [site.id, site])
+          );
+
+          return snapshot.docs
+            .filter((document) => {
+              const data = document.data();
+
+              return data.enabled !== false;
+            })
+            .map((document) => {
+              const data = document.data();
+              const existingSite =
+                currentSitesById.get(document.id);
+
+              const firestoreSite: CareSite = {
+                id: document.id,
+
+                name:
+                  String(
+                    data.name ??
+                      existingSite?.name ??
+                      "Unnamed Care Site"
+                  ).trim() || "Unnamed Care Site",
+
+                location:
+                  String(
+                    data.location ??
+                      existingSite?.location ??
+                      "Unknown location"
+                  ).trim() || "Unknown location",
+
+                residents:
+                  existingSite?.residents ?? 0,
+
+                staffOnDuty:
+                  getStaffCountForSite(document.id),
+
+                activeIncidents:
+                  existingSite?.activeIncidents ?? 0,
+
+                status:
+                  existingSite?.status ?? "OPERATIONAL",
+              };
+
+              return firestoreSite;
+            })
+            .sort((firstSite, secondSite) =>
+              firstSite.id.localeCompare(
+                secondSite.id,
+                undefined,
+                { numeric: true }
+              )
+            );
+        });
+
+        console.log("MISSION CONTROL CARE SITES:", {
+          count: snapshot.size,
+          sites: snapshot.docs.map((document) => ({
+            id: document.id,
+            name: document.data().name,
+            location: document.data().location,
+            enabled: document.data().enabled,
+          })),
+        });
+      },
+      (error) => {
+        console.error(
+          "MISSION CONTROL CARE SITES ERROR:",
+          error
+        );
+      }
+    );
+
+    return unsubscribeCareSites;
+  }, []);
+
+  useEffect(() => {
     const residentsRef = collection(db, "residents");
 
     const activeIncidentsQuery = query(
