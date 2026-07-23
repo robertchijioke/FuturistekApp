@@ -66,6 +66,22 @@ const getStageProgress = (stage: string) => {
   );
 };
 
+const severityPriority: Record<string, number> = {
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1,
+};
+
+const getSeverityPriority = (severity: string) =>
+  severityPriority[severity.toUpperCase()] ?? 0;
+
+const getStagePriority = (stage: string) => {
+  const index = responseStages.indexOf(stage.toUpperCase());
+
+  return index >= 0 ? index : responseStages.length;
+};
+
 const getTimestamp = (value: any): number => {
   if (typeof value?.toMillis === "function") {
     return value.toMillis();
@@ -217,20 +233,37 @@ export default function GlobalIncidentOperations() {
   }, []);
 
   const activeIncidents = useMemo(
-    () =>
-      allIncidents
-        .filter(
-          (incident) =>
-            incident.status === "active" &&
-            Boolean(careSites[incident.siteId])
-        )
-        .sort(
-          (firstIncident, secondIncident) =>
-            getTimestamp(secondIncident.createdAt) -
-            getTimestamp(firstIncident.createdAt)
-        ),
-    [allIncidents, careSites]
-  );
+  () =>
+    allIncidents
+      .filter(
+        (incident) =>
+          incident.status === "active" &&
+          Boolean(careSites[incident.siteId])
+      )
+      .sort((firstIncident, secondIncident) => {
+        const severityDifference =
+          getSeverityPriority(secondIncident.severity) -
+          getSeverityPriority(firstIncident.severity);
+
+        if (severityDifference !== 0) {
+          return severityDifference;
+        }
+
+        const stageDifference =
+          getStagePriority(firstIncident.stage) -
+          getStagePriority(secondIncident.stage);
+
+        if (stageDifference !== 0) {
+          return stageDifference;
+        }
+
+        return (
+          getTimestamp(secondIncident.createdAt) -
+          getTimestamp(firstIncident.createdAt)
+        );
+      }),
+  [allIncidents, careSites]
+);
 
   const affectedSiteCount = useMemo(
     () =>
@@ -241,6 +274,27 @@ export default function GlobalIncidentOperations() {
       ).size,
     [activeIncidents]
   );
+
+  const urgentIncidentCount = useMemo(
+  () =>
+    activeIncidents.filter((incident) =>
+      ["CRITICAL", "HIGH"].includes(
+        incident.severity.toUpperCase()
+      )
+    ).length,
+  [activeIncidents]
+);
+
+const awaitingAssignmentCount = useMemo(
+  () =>
+    activeIncidents.filter(
+      (incident) =>
+        !incident.assignedStaff ||
+        incident.assignedStaff ===
+          "Awaiting assignment"
+    ).length,
+  [activeIncidents]
+);
 
   const openSiteCommandCentre = (
     incident: GlobalIncident
@@ -318,6 +372,32 @@ export default function GlobalIncidentOperations() {
         </View>
       </View>
 
+      {urgentIncidentCount > 0 && (
+        <View style={styles.urgentBanner}>
+          <Text style={styles.urgentBannerTitle}>
+            🚨 Urgent Response Required
+          </Text>
+
+          <Text style={styles.urgentBannerText}>
+            {urgentIncidentCount} high-priority{" "}
+            {urgentIncidentCount === 1
+              ? "incident requires"
+              : "incidents require"}{" "}
+            immediate coordination.
+          </Text>
+
+          {awaitingAssignmentCount > 0 && (
+            <Text style={styles.assignmentWarning}>
+              ⚠️ {awaitingAssignmentCount}{" "}
+              {awaitingAssignmentCount === 1
+                ? "incident is"
+                : "incidents are"}{" "}
+              awaiting staff assignment.
+            </Text>
+          )}
+        </View>
+      )}
+
       <View style={styles.aiCard}>
         <Text style={styles.sectionTitle}>
           🤖 AI Operations Summary
@@ -385,6 +465,25 @@ export default function GlobalIncidentOperations() {
               <Text style={styles.incidentTitle}>
                 {incident.type}
               </Text>
+
+              <View style={styles.severityRow}>
+                <Text
+                  style={[
+                    styles.severityBadge,
+                    incident.severity === "CRITICAL"
+                      ? styles.criticalSeverity
+                      : incident.severity === "HIGH"
+                        ? styles.highSeverity
+                        : styles.standardSeverity,
+                  ]}
+                >
+                  {incident.severity}
+                </Text>
+
+                <Text style={styles.priorityText}>
+                  Priority #{activeIncidents.indexOf(incident) + 1}
+                </Text>
+              </View>
 
               <Text style={styles.detailText}>
                 🏠 Room: {incident.room}
@@ -706,5 +805,72 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     marginTop: 10,
+  },
+
+  urgentBanner: {
+    backgroundColor: "#3f1d0d",
+    borderColor: "#f97316",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 23,
+    marginTop: 26,
+  },
+
+  urgentBannerTitle: {
+    color: "#fb923c",
+    fontSize: 25,
+    fontWeight: "900",
+  },
+
+  urgentBannerText: {
+    color: "#fed7aa",
+    fontSize: 18,
+    lineHeight: 28,
+    marginTop: 12,
+  },
+
+  assignmentWarning: {
+    color: "#fbbf24",
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 25,
+    marginTop: 12,
+  },
+
+  severityRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  severityBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    fontSize: 14,
+    fontWeight: "900",
+    overflow: "hidden",
+  },
+
+  criticalSeverity: {
+    color: "#ffffff",
+    backgroundColor: "#dc2626",
+  },
+
+  highSeverity: {
+    color: "#111827",
+    backgroundColor: "#f59e0b",
+  },
+
+  standardSeverity: {
+    color: "#ffffff",
+    backgroundColor: "#2563eb",
+  },
+
+  priorityText: {
+    color: "#93c5fd",
+    fontSize: 15,
+    fontWeight: "800",
   },
 });
