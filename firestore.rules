@@ -6,8 +6,37 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    match /{document=**} {
-      allow read, write: if signedIn();
+    function hasEnabledAccessProfile() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
+        ).data.enabled == true;
+    }
+
+    function isEnterpriseAdmin() {
+      return hasEnabledAccessProfile()
+        && get(
+          /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
+        ).data.role == "ENTERPRISE_ADMIN";
+    }
+
+    // Users may read their own profile.
+    // Enterprise admins may read all access profiles.
+    // Profile changes remain console/Admin-SDK managed for now.
+    match /userAccessProfiles/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow read: if isEnterpriseAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Temporary enterprise-admin lockdown for every other collection.
+    match /{topLevelCollection}/{document=**} {
+      allow read, write: if
+        topLevelCollection != "userAccessProfiles"
+        && isEnterpriseAdmin();
     }
   }
 }
