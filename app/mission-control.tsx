@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
-import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { collection, doc, documentId, onSnapshot, query, where } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -19,6 +19,14 @@ type CareSite = {
   activeIncidents: number;
   residents: number;
   staffOnDuty: number;
+};
+
+type AccessProfile = {
+  role: string;
+  enabled: boolean;
+  siteIds: string[];
+  primarySiteId: string;
+  permissionsVersion: number;
 };
 
 const getStaffCountForSite = (siteId: string) =>
@@ -61,6 +69,15 @@ export default function MissionControl() {
 
   const [careSites, setCareSites] =
     useState<CareSite[]>(initialCareSites);
+  const [accessProfile, setAccessProfile] =
+    useState<AccessProfile | null>(null);
+  const residentCountsBySiteRef = useRef<
+    Record<string, number>
+  >({});
+
+  const incidentCountsBySiteRef = useRef<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     const currentUser = auth.currentUser;
@@ -69,6 +86,8 @@ export default function MissionControl() {
       console.warn(
         "MISSION CONTROL ACCESS PROFILE: No authenticated user"
       );
+
+      setAccessProfile(null);
       return;
     }
 
@@ -86,23 +105,47 @@ export default function MissionControl() {
               uid: currentUser.uid,
             }
           );
+
+          setAccessProfile(null);
           return;
         }
 
         const data = snapshot.data();
 
+        const siteIds = Array.isArray(data.siteIds)
+          ? data.siteIds
+              .map((siteId: unknown) =>
+                String(siteId ?? "").trim()
+              )
+              .filter(Boolean)
+          : [];
+
+        const loadedAccessProfile: AccessProfile = {
+          role: String(data.role ?? "")
+            .trim()
+            .toUpperCase(),
+
+          enabled: data.enabled === true,
+
+          siteIds,
+
+          primarySiteId:
+            String(
+              data.primarySiteId ??
+                siteIds[0] ??
+                ""
+            ).trim(),
+
+          permissionsVersion: Number(
+            data.permissionsVersion ?? 0
+          ),
+        };
+
+        setAccessProfile(loadedAccessProfile);
+
         console.log(
           "✅ MISSION CONTROL ACCESS PROFILE LOADED:",
-          {
-            role: String(data.role ?? ""),
-            enabled: data.enabled === true,
-            siteIds: Array.isArray(data.siteIds)
-              ? data.siteIds
-              : [],
-            permissionsVersion: Number(
-              data.permissionsVersion ?? 0
-            ),
-          }
+          loadedAccessProfile
         );
       },
       (error) => {
@@ -110,6 +153,8 @@ export default function MissionControl() {
           "MISSION CONTROL ACCESS PROFILE ERROR:",
           error
         );
+
+        setAccessProfile(null);
       }
     );
 
@@ -117,8 +162,53 @@ export default function MissionControl() {
   }, []);
 
   useEffect(() => {
+
+  if (!accessProfile?.enabled) {
+    setCareSites([]);
+    return;
+  }
+
+  const profileSiteIds = accessProfile.siteIds
+    .map((siteId) => String(siteId).trim())
+    .filter(Boolean);
+
+  const isEnterpriseAdmin =
+    accessProfile.role === "ENTERPRISE_ADMIN";
+
+  if (
+    !isEnterpriseAdmin &&
+    profileSiteIds.length === 0
+  ) {
+    console.warn(
+      "MISSION CONTROL: No authorised care sites"
+    );
+
+    setCareSites([]);
+    return;
+  }
+
+  const careSitesSource = isEnterpriseAdmin
+    ? collection(db, "careSites")
+    : profileSiteIds.length === 1
+      ? query(
+          collection(db, "careSites"),
+          where(
+            documentId(),
+            "==",
+            profileSiteIds[0]
+          )
+        )
+      : query(
+          collection(db, "careSites"),
+          where(
+            documentId(),
+            "in",
+            profileSiteIds
+          )
+        );
+
     const unsubscribeCareSites = onSnapshot(
-      collection(db, "careSites"),
+      careSitesSource,
       (snapshot) => {
         if (snapshot.empty) {
           console.warn(
@@ -161,16 +251,32 @@ export default function MissionControl() {
                   ).trim() || "Unknown location",
 
                 residents:
-                  existingSite?.residents ?? 0,
+                  residentCountsBySiteRef.current[
+                    document.id
+                  ] ??
+                  existingSite?.residents ??
+                  0,
 
                 staffOnDuty:
                   getStaffCountForSite(document.id),
 
                 activeIncidents:
-                  existingSite?.activeIncidents ?? 0,
+                  incidentCountsBySiteRef.current[
+                    document.id
+                  ] ??
+                  existingSite?.activeIncidents ??
+                  0,
 
                 status:
-                  existingSite?.status ?? "OPERATIONAL",
+                  (
+                    incidentCountsBySiteRef.current[
+                      document.id
+                    ] ??
+                    existingSite?.activeIncidents ??
+                    0
+                  ) > 0
+                    ? "ATTENTION"
+                    : "OPERATIONAL",
               };
 
               return firestoreSite;
@@ -203,42 +309,126 @@ export default function MissionControl() {
     );
 
     return unsubscribeCareSites;
-  }, []);
+  }, [accessProfile]);
 
   useEffect(() => {
-    const residentsRef = collection(db, "residents");
-
-    const activeIncidentsQuery = query(
-      collection(db, "careEvents"),
-      where("status", "==", "active")
+  if (!accessProfile?.enabled) {
+    setCareSites((currentSites) =>
+      currentSites.map((site) => ({
+        ...site,
+        residents: 0,
+        activeIncidents: 0,
+      }))
     );
+
+    return;
+  }
+
+  const profileSiteIds = accessProfile.siteIds
+    .map((siteId) => String(siteId).trim())
+    .filter(Boolean);
+
+  const isEnterpriseAdmin =
+    accessProfile.role === "ENTERPRISE_ADMIN";
+
+  if (
+    !isEnterpriseAdmin &&
+    profileSiteIds.length === 0
+  ) {
+    return;
+  }
+
+  const residentsRef = isEnterpriseAdmin
+    ? collection(db, "residents")
+    : profileSiteIds.length === 1
+      ? query(
+          collection(db, "residents"),
+          where(
+            "siteId",
+            "==",
+            profileSiteIds[0]
+          )
+        )
+      : query(
+          collection(db, "residents"),
+          where(
+            "siteId",
+            "in",
+            profileSiteIds
+          )
+        );
+
+  const activeIncidentsQuery =
+    isEnterpriseAdmin
+      ? query(
+          collection(db, "careEvents"),
+          where("status", "==", "active")
+        )
+      : profileSiteIds.length === 1
+        ? query(
+            collection(db, "careEvents"),
+            where(
+              "siteId",
+              "==",
+              profileSiteIds[0]
+            )
+          )
+        : query(
+            collection(db, "careEvents"),
+            where(
+              "siteId",
+              "in",
+              profileSiteIds
+            )
+          );
 
     const unsubscribeResidents = onSnapshot(
       residentsRef,
       (snapshot) => {
-        const residentCountsBySite: Record<string, number> = {};
+        console.log("MISSION CONTROL RESIDENT SNAPSHOT:", {
+          size: snapshot.size,
+          empty: snapshot.empty,
+        });
+
+        const residentCountsBySite: Record<
+          string,
+          number
+        > = {};
 
         snapshot.docs.forEach((document) => {
           const data = document.data();
 
           const residentSiteId =
-            String(data.siteId ?? "site-1").trim() ||
-            "site-1";
+            String(
+              data.siteId ?? "site-1"
+            ).trim() || "site-1";
 
           residentCountsBySite[residentSiteId] =
-            (residentCountsBySite[residentSiteId] ?? 0) + 1;
+            (
+              residentCountsBySite[
+                residentSiteId
+              ] ?? 0
+            ) + 1;
         });
+
+        residentCountsBySiteRef.current =
+          residentCountsBySite;
 
         setCareSites((currentSites) =>
           currentSites.map((site) => ({
             ...site,
-            residents: residentCountsBySite[site.id] ?? 0,
+            residents:
+              residentCountsBySite[site.id] ??
+              0,
           }))
         );
 
-        console.log("MISSION CONTROL RESIDENTS BY SITE:", {
-          counts: residentCountsBySite,
-        });
+        console.log(
+          "MISSION CONTROL RESIDENTS BY SITE:",
+          {
+            counts: residentCountsBySite,
+          }
+        );
       },
       (error) => {
         console.error(
@@ -256,13 +446,27 @@ export default function MissionControl() {
         snapshot.docs.forEach((document) => {
           const data = document.data();
 
+          const incidentStatus = String(
+            data.status ?? ""
+          )
+            .trim()
+            .toLowerCase();
+
+          if (incidentStatus !== "active") {
+            return;
+          }
+
           const incidentSiteId =
             String(data.siteId ?? "site-1").trim() ||
             "site-1";
 
           incidentCountsBySite[incidentSiteId] =
-            (incidentCountsBySite[incidentSiteId] ?? 0) + 1;
+            (incidentCountsBySite[incidentSiteId] ??
+              0) + 1;
         });
+
+        incidentCountsBySiteRef.current =
+          incidentCountsBySite;
 
         setCareSites((currentSites) =>
           currentSites.map((site) => {
@@ -296,7 +500,7 @@ export default function MissionControl() {
       unsubscribeResidents();
       unsubscribeIncidents();
     };
-  }, []);
+  }, [accessProfile]);
 
   const totalResidents = careSites.reduce(
     (total, site) => total + site.residents,
