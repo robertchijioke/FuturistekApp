@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   Pressable,
@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { baseStaff } from "../data/care-staff";
-import { db } from "../lib/firebase";
+import { auth, db } from "../lib/firebase";
 
 type CareSite = {
   id: string;
@@ -61,6 +61,60 @@ export default function MissionControl() {
 
   const [careSites, setCareSites] =
     useState<CareSite[]>(initialCareSites);
+
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      console.warn(
+        "MISSION CONTROL ACCESS PROFILE: No authenticated user"
+      );
+      return;
+    }
+
+    const unsubscribeAccessProfile = onSnapshot(
+      doc(
+        db,
+        "userAccessProfiles",
+        currentUser.uid
+      ),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          console.error(
+            "MISSION CONTROL ACCESS PROFILE MISSING:",
+            {
+              uid: currentUser.uid,
+            }
+          );
+          return;
+        }
+
+        const data = snapshot.data();
+
+        console.log(
+          "✅ MISSION CONTROL ACCESS PROFILE LOADED:",
+          {
+            role: String(data.role ?? ""),
+            enabled: data.enabled === true,
+            siteIds: Array.isArray(data.siteIds)
+              ? data.siteIds
+              : [],
+            permissionsVersion: Number(
+              data.permissionsVersion ?? 0
+            ),
+          }
+        );
+      },
+      (error) => {
+        console.error(
+          "MISSION CONTROL ACCESS PROFILE ERROR:",
+          error
+        );
+      }
+    );
+
+    return unsubscribeAccessProfile;
+  }, []);
 
   useEffect(() => {
     const unsubscribeCareSites = onSnapshot(
