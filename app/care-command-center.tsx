@@ -296,8 +296,13 @@ export default function CareCommandCenter() {
     playbackStages.indexOf(incidentStage);
 
   useEffect(() => {
-      const unsubscribe = onSnapshot(
+      const residentsQuery = query(
         collection(db, "residents"),
+        where("siteId", "==", selectedSiteId)
+      );
+
+      const unsubscribe = onSnapshot(
+        residentsQuery,
         (snapshot) => {
           const loadedResidents = snapshot.docs
           .map((document) => {
@@ -345,7 +350,6 @@ export default function CareCommandCenter() {
           })
           .filter(
             (resident) =>
-              resident.siteId === selectedSiteId &&
               resident.id &&
               resident.fullName &&
               resident.room
@@ -444,6 +448,7 @@ export default function CareCommandCenter() {
 useEffect(() => {
   const q = query(
     collection(db, "careEvents"),
+    where("siteId", "==", selectedSiteId),
     orderBy("createdAt", "desc")
   );
 
@@ -463,11 +468,7 @@ useEffect(() => {
       };
     });
 
-    const siteEvents = allEvents.filter(
-      (event: any) =>
-        String(event.siteId ?? "site-1").trim() ===
-        selectedSiteId
-    );
+    const siteEvents = allEvents;
 
     const activeEvents: any[] = siteEvents.filter(
       (event: any) =>
