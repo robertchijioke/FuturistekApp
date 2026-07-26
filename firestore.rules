@@ -6,36 +6,85 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function hasEnabledAccessProfile() {
+    function profileExists() {
       return signedIn()
         && exists(
           /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
-        )
-        && get(
-          /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
-        ).data.enabled == true;
+        );
+    }
+
+    function accessProfile() {
+      return get(
+        /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
+      ).data;
+    }
+
+    function hasEnabledAccessProfile() {
+      return profileExists()
+        && accessProfile().enabled == true;
     }
 
     function isEnterpriseAdmin() {
       return hasEnabledAccessProfile()
-        && get(
-          /databases/$(database)/documents/userAccessProfiles/$(request.auth.uid)
-        ).data.role == "ENTERPRISE_ADMIN";
+        && accessProfile().role == "ENTERPRISE_ADMIN";
     }
 
-    // Users may read their own profile.
-    // Enterprise admins may read all access profiles.
-    // Profile changes remain console/Admin-SDK managed for now.
+    function isSiteManager() {
+      return hasEnabledAccessProfile()
+        && accessProfile().role == "SITE_MANAGER";
+    }
+
+    function hasAssignedSite(siteId) {
+      return hasEnabledAccessProfile()
+        && siteId is string
+        && siteId in accessProfile().siteIds;
+    }
+
+    function canReadSite(siteId) {
+      return isEnterpriseAdmin()
+        || (
+          isSiteManager()
+          && hasAssignedSite(siteId)
+        );
+    }
+
     match /userAccessProfiles/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow read: if isEnterpriseAdmin();
+      allow read: if signedIn()
+        && (
+          request.auth.uid == uid
+          || isEnterpriseAdmin()
+        );
+
       allow create, update, delete: if false;
     }
 
-    // Temporary enterprise-admin lockdown for every other collection.
+    match /careSites/{siteId} {
+      allow read: if canReadSite(siteId);
+      allow write: if isEnterpriseAdmin();
+    }
+
+    match /residents/{residentId} {
+      allow read: if canReadSite(
+        resource.data.get("siteId", "")
+      );
+
+      allow write: if isEnterpriseAdmin();
+    }
+
+    match /careEvents/{eventId} {
+      allow read: if canReadSite(
+        resource.data.get("siteId", "")
+      );
+
+      allow write: if isEnterpriseAdmin();
+    }
+    
     match /{topLevelCollection}/{document=**} {
       allow read, write: if
         topLevelCollection != "userAccessProfiles"
+        && topLevelCollection != "careSites"
+        && topLevelCollection != "residents"
+        && topLevelCollection != "careEvents"
         && isEnterpriseAdmin();
     }
   }

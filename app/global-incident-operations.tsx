@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
   doc,
@@ -14,8 +15,8 @@ import {
   Text,
   View,
 } from "react-native";
+import { auth, db } from "../lib/firebase";
 
-import { db } from "../lib/firebase";
 
 type CareSite = {
   id: string;
@@ -237,8 +238,16 @@ const formatTimestamp = (value: any): string => {
   return new Date(timestamp).toLocaleString();
 };
 
+type GlobalOperationsAccess =
+  | "checking"
+  | "allowed"
+  | "denied";
+
 export default function GlobalIncidentOperations() {
   const router = useRouter();
+
+  const [accessState, setAccessState] =
+    useState<GlobalOperationsAccess>("checking");
 
   const [careSites, setCareSites] =
     useState<Record<string, CareSite>>({});
@@ -261,6 +270,85 @@ export default function GlobalIncidentOperations() {
   ] = useState<string | null>(null);
 
   useEffect(() => {
+    let unsubscribeProfile: (() => void) | null =
+      null;
+
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (user) => {
+        unsubscribeProfile?.();
+        unsubscribeProfile = null;
+
+        if (!user) {
+          setAccessState("denied");
+          return;
+        }
+
+        setAccessState("checking");
+
+        unsubscribeProfile = onSnapshot(
+          doc(
+            db,
+            "userAccessProfiles",
+            user.uid
+          ),
+          (snapshot) => {
+            if (!snapshot.exists()) {
+              console.warn(
+                "GLOBAL OPERATIONS ACCESS PROFILE MISSING:",
+                {
+                  uid: user.uid,
+                }
+              );
+
+              setAccessState("denied");
+              return;
+            }
+
+            const data = snapshot.data();
+
+            const role = String(data.role ?? "")
+              .trim()
+              .toUpperCase();
+
+            const isEnterpriseAdmin =
+              data.enabled === true &&
+              role === "ENTERPRISE_ADMIN";
+
+            console.log(
+              "GLOBAL OPERATIONS ACCESS CHECK:",
+              {
+                enabled: data.enabled === true,
+                role,
+                allowed: isEnterpriseAdmin,
+              }
+            );
+
+            setAccessState(
+              isEnterpriseAdmin
+                ? "allowed"
+                : "denied"
+            );
+          },
+          (error) => {
+            console.error(
+              "GLOBAL OPERATIONS ACCESS PROFILE ERROR:",
+              error
+            );
+
+            setAccessState("denied");
+          }
+        );
+      }
+    );
+
+    return () => {
+      unsubscribeProfile?.();
+      unsubscribeAuth();
+    };
+  }, []);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
@@ -271,6 +359,11 @@ export default function GlobalIncidentOperations() {
   }, []);
 
   useEffect(() => {
+    if (accessState !== "allowed") {
+      setCareSites({});
+      return;
+    }
+
     const unsubscribeSites = onSnapshot(
       collection(db, "careSites"),
       (snapshot) => {
@@ -310,9 +403,14 @@ export default function GlobalIncidentOperations() {
     );
 
     return unsubscribeSites;
-  }, []);
+  }, [accessState]);
 
   useEffect(() => {
+    if (accessState !== "allowed") {
+      setAllIncidents([]);
+      return;
+    }
+
     const unsubscribeIncidents = onSnapshot(
       collection(db, "careEvents"),
       (snapshot) => {
@@ -394,9 +492,14 @@ export default function GlobalIncidentOperations() {
     );
 
     return unsubscribeIncidents;
-  }, []);
+  }, [accessState]);
 
   useEffect(() => {
+    if (accessState !== "allowed") {
+      setEscalationAudit([]);
+      return;
+    }
+
     const unsubscribeAudit = onSnapshot(
       collection(db, "enterpriseEscalationAudit"),
       (snapshot) => {
@@ -506,7 +609,7 @@ export default function GlobalIncidentOperations() {
     );
 
     return unsubscribeAudit;
-  }, []);
+  }, [accessState]);
 
   const activeIncidents = useMemo(
     () =>
@@ -754,6 +857,107 @@ const acknowledgeEnterpriseEscalation = async (
       },
     } as any);
   };
+
+  if (accessState === "checking") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#061826",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 28,
+        }}
+      >
+        <Text
+          style={{
+            color: "#ffffff",
+            fontSize: 26,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          Verifying Enterprise Admin access...
+        </Text>
+
+        <Text
+          style={{
+            color: "#93c5fd",
+            fontSize: 17,
+            lineHeight: 25,
+            textAlign: "center",
+            marginTop: 14,
+          }}
+        >
+          Global operational data will load after your
+          access profile is confirmed.
+        </Text>
+      </View>
+    );
+  }
+
+  if (accessState === "denied") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#061826",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 28,
+        }}
+      >
+        <Text
+          style={{
+            color: "#f87171",
+            fontSize: 31,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          🔒 Access Restricted
+        </Text>
+
+        <Text
+          style={{
+            color: "#cbd5e1",
+            fontSize: 18,
+            lineHeight: 28,
+            textAlign: "center",
+            marginTop: 18,
+          }}
+        >
+          Global Incident Operations is available only
+          to enabled Enterprise Admin accounts.
+        </Text>
+
+        <Pressable
+          onPress={() =>
+            router.replace(
+              "/mission-control" as any
+            )
+          }
+          style={{
+            backgroundColor: "#2563eb",
+            borderRadius: 16,
+            paddingHorizontal: 24,
+            paddingVertical: 16,
+            marginTop: 28,
+          }}
+        >
+          <Text
+            style={{
+              color: "#ffffff",
+              fontSize: 18,
+              fontWeight: "900",
+            }}
+          >
+            ← Return to Mission Control
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <ScrollView

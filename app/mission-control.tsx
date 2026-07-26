@@ -79,6 +79,10 @@ export default function MissionControl() {
     Record<string, number>
   >({});
 
+  const canOpenGlobalOperations =
+    accessProfile?.enabled === true &&
+    accessProfile.role === "ENTERPRISE_ADMIN";
+
   useEffect(() => {
     const currentUser = auth.currentUser;
 
@@ -650,16 +654,20 @@ export default function MissionControl() {
         );
       })}
 
-      <Pressable
-        onPress={() =>
-          router.push("/global-incident-operations" as any)
-        }
-        style={styles.enterpriseButton}
-      >
-        <Text style={styles.enterpriseButtonText}>
-          🚨 Open Global Incident Operations
-        </Text>
-      </Pressable>
+      {canOpenGlobalOperations && (
+        <Pressable
+          onPress={() =>
+            router.push(
+              "/global-incident-operations" as any
+            )
+          }
+          style={styles.enterpriseButton}
+        >
+          <Text style={styles.enterpriseButtonText}>
+            🚨 Open Global Incident Operations
+          </Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }

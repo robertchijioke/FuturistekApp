@@ -15,7 +15,6 @@ import { nextIncidentStage, resetIncident } from "../utils/incidentEngine";
 import { logTimeline } from "../utils/timeline";
 
 
-
 type CommandCenterResident = {
   id: string;
   fullName: string;
@@ -276,6 +275,9 @@ export default function CareCommandCenter() {
   const [selectedResidentId, setSelectedResidentId] =
     useState("");
 
+  const [residentsLoading, setResidentsLoading] =
+    useState(true);
+
   const selectedResident =
     realResidents.find(
       (resident) => resident.id === selectedResidentId
@@ -296,15 +298,19 @@ export default function CareCommandCenter() {
     playbackStages.indexOf(incidentStage);
 
   useEffect(() => {
-      const residentsQuery = query(
-        collection(db, "residents"),
-        where("siteId", "==", selectedSiteId)
-      );
+    setResidentsLoading(true);
+    setRealResidents([]);
+    setSelectedResidentId("");
 
-      const unsubscribe = onSnapshot(
-        residentsQuery,
-        (snapshot) => {
-          const loadedResidents = snapshot.docs
+    const residentsQuery = query(
+      collection(db, "residents"),
+      where("siteId", "==", selectedSiteId)
+    );
+
+    const unsubscribe = onSnapshot(
+      residentsQuery,
+      (snapshot) => {
+        const loadedResidents = snapshot.docs
           .map((document) => {
             const data = document.data();
 
@@ -312,8 +318,8 @@ export default function CareCommandCenter() {
               id: document.id,
 
               siteId:
-                String(data.siteId ?? "site-1").trim() ||
-                "site-1",
+                String(data.siteId ?? selectedSiteId).trim() ||
+                selectedSiteId,
 
               fullName: String(
                 data.fullName ??
@@ -321,13 +327,9 @@ export default function CareCommandCenter() {
                   "Resident"
               ).trim(),
 
-              room: String(
-                data.room ?? ""
-              ).trim(),
+              room: String(data.room ?? "").trim(),
 
-              status: String(
-                data.status ?? "SAFE"
-              )
+              status: String(data.status ?? "SAFE")
                 .trim()
                 .toUpperCase(),
 
@@ -360,37 +362,46 @@ export default function CareCommandCenter() {
             })
           );
 
-          setRealResidents(loadedResidents);
+        setRealResidents(loadedResidents);
 
-          setSelectedResidentId((current) => {
-            if (
-              current &&
-              loadedResidents.some(
-                (resident) => resident.id === current
-              )
-            ) {
-              return current;
-            }
+        setSelectedResidentId((current) => {
+          if (
+            current &&
+            loadedResidents.some(
+              (resident) => resident.id === current
+            )
+          ) {
+            return current;
+          }
 
-            return loadedResidents[0]?.id ?? "";
-          });
+          return loadedResidents[0]?.id ?? "";
+        });
 
-          console.log("✅ COMMAND CENTER RESIDENTS LOADED:", {
+        setResidentsLoading(false);
+
+        console.log(
+          "✅ COMMAND CENTER RESIDENTS LOADED:",
+          {
             siteId: selectedSiteId,
             count: loadedResidents.length,
-          });
-        },
-        (error) => {
-          console.error(
-            "Could not load Command Center residents:",
-            error
-          );
-        }
-      );
+          }
+        );
+      },
+      (error) => {
+        console.error(
+          "Could not load Command Center residents:",
+          error
+        );
 
-      return unsubscribe;
-    }, [selectedSiteId]);
+        setRealResidents([]);
+        setSelectedResidentId("");
+        setResidentsLoading(false);
+      }
+    );
 
+    return unsubscribe;
+  }, [selectedSiteId]);
+ 
   useEffect(() => {
   if (!isPlaying) return;
 
@@ -2704,7 +2715,7 @@ const updateCareEventStageForRoom = async (
           Choose the resident who should receive the simulated fall incident.
         </Text>
 
-        {realResidents.length === 0 ? (
+        {residentsLoading ? (
           <Text
             style={{
               color: "#fbbf24",
@@ -2713,6 +2724,18 @@ const updateCareEventStageForRoom = async (
             }}
           >
             Loading resident directory...
+          </Text>
+        ) : realResidents.length === 0 ? (
+          <Text
+            style={{
+              color: "#94a3b8",
+              fontSize: 18,
+              lineHeight: 26,
+              fontWeight: "700",
+            }}
+          >
+            No residents are currently assigned to this care
+            site.
           </Text>
         ) : (
           realResidents.map((resident) => {
@@ -2766,8 +2789,18 @@ const updateCareEventStageForRoom = async (
 
       <Pressable
         onPress={triggerTestFallEvent}
+        disabled={
+          residentsLoading || !selectedResident
+        }
         style={{
-          backgroundColor: "#ef4444",
+          backgroundColor:
+            residentsLoading || !selectedResident
+              ? "#7f1d1d"
+              : "#ef4444",
+          opacity:
+            residentsLoading || !selectedResident
+              ? 0.55
+              : 1,
           padding: 18,
           borderRadius: 16,
           marginTop: 16,
@@ -2775,16 +2808,17 @@ const updateCareEventStageForRoom = async (
       >
         <Text
           style={{
-            color: "#fff",
-            textAlign: "center",
-            fontWeight: "800",
+            color: "#ffffff",
             fontSize: 22,
+            fontWeight: "900",
+            textAlign: "center",
           }}
         >
-          🧪 Simulate{" "}
-          {selectedResident
-            ? `${selectedResident.fullName} Fall`
-            : "Resident Fall"}
+          {residentsLoading
+            ? "Loading Residents..."
+            : realResidents.length === 0
+              ? "No Residents Available"
+              : "🧪 Simulate Resident Fall"}
         </Text>
       </Pressable>
 
