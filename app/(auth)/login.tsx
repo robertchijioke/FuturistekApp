@@ -53,7 +53,14 @@ const onLogin = async () => {
       }
 
       if (role === "SITE_MANAGER") {
-        router.replace("/mission-control" as any);
+        router.dismissAll();
+        router.replace("/(tabs)/profile" as any);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            router.push("/mission-control" as any);
+          });
+        });
+
         return;
       }
 

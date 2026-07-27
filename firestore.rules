@@ -78,13 +78,27 @@ service cloud.firestore {
 
       allow write: if isEnterpriseAdmin();
     }
-    
+
+    match /orders/{orderId} {
+      allow read: if isEnterpriseAdmin()
+        || (
+          signedIn()
+          && !profileExists()
+          && resource.data.get("userId", "") ==
+            request.auth.uid
+        );
+
+      allow create, update, delete:
+        if isEnterpriseAdmin();
+    }
+
     match /{topLevelCollection}/{document=**} {
       allow read, write: if
         topLevelCollection != "userAccessProfiles"
         && topLevelCollection != "careSites"
         && topLevelCollection != "residents"
         && topLevelCollection != "careEvents"
+        && topLevelCollection != "orders"
         && isEnterpriseAdmin();
     }
   }

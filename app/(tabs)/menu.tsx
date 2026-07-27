@@ -193,44 +193,36 @@ export default function MenuScreen() {
   }, []);
 
   const onMenuSignOut = async () => {
-    if (signingOut) {
-      return;
-    }
+    if (signingOut) return;
 
     setSigningOut(true);
 
     try {
-      await signOut(auth);
-
       setMenuMode("signedOut");
-      setSigningOut(false);
 
       menuScrollRef.current?.scrollTo({
         y: 0,
         animated: false,
       });
-      
-      requestAnimationFrame(() => {
-        router.replace(
-          "/(tabs)/home" as any
-        );
+
+      router.replace("/(tabs)/home" as any);
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
       });
+
+      await signOut(auth);
 
       console.log("MENU SIGN OUT SUCCESS");
     } catch (error: any) {
-      console.error(
-        "MENU SIGN OUT ERROR:",
-        error
-      );
-
+      console.error("MENU SIGN OUT ERROR:", error);
+    } finally {
       setSigningOut(false);
-
-      menuScrollRef.current?.scrollTo({
-        y: 0,
-        animated: false,
-      });
     }
   };
+  
 
   if (menuMode === "checking") {
     return (

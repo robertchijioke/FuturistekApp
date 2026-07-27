@@ -254,32 +254,31 @@ export default function ProfileScreen() {
   };
 
   const onSignOut = async () => {
-    if (signingOut) {
-      return;
-    }
+    if (signingOut) return;
 
     setSigningOut(true);
 
     try {
+      router.dismissAll();
       router.replace("/(tabs)/home" as any);
 
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 350);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
       });
 
       await signOut(auth);
 
-      console.log("SIGN OUT SUCCESS");
+      console.log("PROFILE SIGN OUT SUCCESS");
     } catch (error: any) {
-      console.error("SIGN OUT ERROR:", error);
+      console.error("PROFILE SIGN OUT ERROR:", error);
+
+      setSigningOut(false);
 
       Alert.alert(
         "Sign out failed",
-        error?.message ??
-          "Please try again."
-      );
-      router.replace(
-        "/(tabs)/profile" as any
+        error?.message ?? "Please try again."
       );
     }
   };
