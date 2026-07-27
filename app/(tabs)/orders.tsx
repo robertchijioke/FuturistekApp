@@ -1,121 +1,359 @@
-import { useRouter } from "expo-router";
+import {
+  Redirect,
+  useRouter,
+} from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { auth, db } from "../../lib/firebase";
 
 
-
+type OrdersAccessState =
+  | "checking"
+  | "signedOut"
+  | "allowed"
+  | "redirecting"
+  | "restricted"
+  | "error";
 
 export default function OrdersScreen() {
+  const router = useRouter();
+
   const [user, setUser] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ordersAccessState, setOrdersAccessState] =
+   useState<OrdersAccessState>("checking");
 
-  const router = useRouter();
+  
 
 useEffect(() => {
-  const currentUser = auth.currentUser;
-  setUser(currentUser);
+  let cancelled = false;
+  let authVersion = 0;
 
-  const loadOrders = async () => {
-    if (!currentUser) {
-      setOrders([]);
-      setLoading(false);
-      return;
-    }
+  const unsubscribeAuth = onAuthStateChanged(
+    auth,
+    (currentUser) => {
+      authVersion += 1;
 
-    try {
-      const q = query(
-        collection(db, "orders"),
-        where("userId", "==", currentUser.uid),
-        orderBy("createdAt", "desc")
-      );
+      const currentAuthVersion = authVersion;
 
-      const snap = await getDocs(q);
-
-      const results = snap.docs.map((doc) => {
-        const data = doc.data() as any;
-
-        let createdAtMs = 0;
-
-        if (data?.createdAt?.seconds) {
-          createdAtMs = data.createdAt.seconds * 1000;
-        } else if (typeof data?.createdAt === "string") {
-          createdAtMs = new Date(data.createdAt).getTime() || 0;
-        } else if (typeof data?.createdAt?.toDate === "function") {
-          createdAtMs = data.createdAt.toDate().getTime();
-        }
-
-        return {
-          id: doc.id,
-          ...data,
-          createdAtMs,
-        };
-      });
-
-      results.sort((a: any, b: any) => b.createdAtMs - a.createdAtMs);
-
-      console.log(
-        "SORTED ORDER LIST:",
-        results.map((o: any) => ({
-          orderNumber: o.orderNumber,
-          createdAt: o.createdAt,
-          createdAtMs: o.createdAtMs,
-        }))
-      );
-
-      setOrders(results);
-    } catch (error) {
-      console.log("loadOrders error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  loadOrders();
-}, []);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      setOrders([]);
+      setLoading(true);
 
       if (!currentUser) {
-        setOrders([]);
+        setOrdersAccessState("signedOut");
         setLoading(false);
         return;
       }
 
-      try {
-       const q = query(
-        collection(db, "orders"),
-        where("userId", "==", currentUser.uid)
+      setOrdersAccessState("checking");
+
+      void (async () => {
+        try {
+          const accessProfileSnapshot =
+            await getDoc(
+              doc(
+                db,
+                "userAccessProfiles",
+                currentUser.uid
+              )
+            );
+
+          if (
+            cancelled ||
+            currentAuthVersion !== authVersion ||
+            auth.currentUser?.uid !== currentUser.uid
+          ) {
+            return;
+          }
+
+          if (accessProfileSnapshot.exists()) {
+            const accessData =
+              accessProfileSnapshot.data();
+
+            const role = String(
+              accessData.role ?? ""
+            )
+              .trim()
+              .toUpperCase();
+
+            const enabled =
+              accessData.enabled === true;
+
+            if (role === "SITE_MANAGER") {
+              setOrders([]);
+              setOrdersAccessState("redirecting");
+              setLoading(false);
+              return;
+            }
+
+            if (
+              (
+                role === "ENTERPRISE_ADMIN" ||
+                role === "SITE_MANAGER"
+              ) &&
+              !enabled
+            ) {
+              setOrdersAccessState("restricted");
+              setLoading(false);
+              return;
+            }
+          }
+
+          const ordersQuery = query(
+            collection(db, "orders"),
+            where(
+              "userId",
+              "==",
+              currentUser.uid
+            ),
+            orderBy("createdAt", "desc")
+          );
+
+          const snapshot =
+            await getDocs(ordersQuery);
+
+          if (
+            cancelled ||
+            currentAuthVersion !== authVersion ||
+            auth.currentUser?.uid !== currentUser.uid
+          ) {
+            return;
+          }
+
+          const results = snapshot.docs.map(
+            (document) => {
+              const data =
+                document.data() as any;
+
+              const createdAt =
+                data.createdAt;
+
+              let createdAtMs = 0;
+
+              if (
+                typeof createdAt?.toMillis ===
+                "function"
+              ) {
+                createdAtMs =
+                  createdAt.toMillis();
+              } else if (
+                typeof createdAt?.toDate ===
+                "function"
+              ) {
+                createdAtMs =
+                  createdAt
+                    .toDate()
+                    .getTime();
+              } else if (
+                typeof createdAt?.seconds ===
+                "number"
+              ) {
+                createdAtMs =
+                  createdAt.seconds * 1000;
+              } else if (
+                typeof createdAt === "string" ||
+                typeof createdAt === "number"
+              ) {
+                const parsedTimestamp =
+                  new Date(
+                    createdAt
+                  ).getTime();
+
+                createdAtMs =
+                  Number.isNaN(
+                    parsedTimestamp
+                  )
+                    ? 0
+                    : parsedTimestamp;
+              }
+
+              return {
+                id: document.id,
+                ...data,
+                createdAtMs,
+              };
+            }
+          );
+
+          results.sort(
+            (firstOrder: any, secondOrder: any) =>
+              secondOrder.createdAtMs -
+              firstOrder.createdAtMs
+          );
+
+          setOrders(results);
+          setOrdersAccessState("allowed");
+
+          console.log(
+            "ORDERS LOADED FOR ACCOUNT:",
+            {
+              uid: currentUser.uid,
+              count: results.length,
+            }
+          );
+        } catch (error) {
+          console.error(
+            "ORDERS LOAD ERROR:",
+            error
+          );
+
+          if (
+            !cancelled &&
+            currentAuthVersion === authVersion
+          ) {
+            setOrders([]);
+            setOrdersAccessState("error");
+          }
+        } finally {
+          if (
+            !cancelled &&
+            currentAuthVersion === authVersion
+          ) {
+            setLoading(false);
+          }
+        }
+      })();
+    },
+    (error) => {
+      console.error(
+        "ORDERS AUTH STATE ERROR:",
+        error
       );
 
-        const snap = await getDocs(q);
-
-        const results = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        results.sort((a: any, b: any) => {
-          const aNum = Number(String(a.orderNumber || "").replace("FUT-", ""));
-          const bNum = Number(String(b.orderNumber || "").replace("FUT-", ""));
-          return bNum - aNum;
-        });
-
-        setOrders(results);
-      } catch (error) {
-        console.log("loadOrders error:", error);
-      } finally {
+      if (!cancelled) {
+        setUser(null);
+        setOrders([]);
+        setOrdersAccessState("error");
         setLoading(false);
       }
-    });
+    }
+  );
 
-    return () => unsub();
-  }, []);
+  return () => {
+    cancelled = true;
+    authVersion += 1;
+    unsubscribeAuth();
+  };
+}, [router]);
+
+if (ordersAccessState === "redirecting") {
+  return (
+    <Redirect href="/mission-control" />
+  );
+}
+
+if (ordersAccessState === "checking") {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#020817",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 28,
+      }}
+    >
+      <Text
+        style={{
+          color: "#ffffff",
+          fontSize: 25,
+          fontWeight: "900",
+          textAlign: "center",
+        }}
+      >
+        Checking order access...
+      </Text>
+    </View>
+  );
+}
+
+if (ordersAccessState === "restricted") {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#020817",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 28,
+      }}
+    >
+      <Text
+        style={{
+          color: "#f87171",
+          fontSize: 28,
+          fontWeight: "900",
+          textAlign: "center",
+        }}
+      >
+        🔒 Account Access Restricted
+      </Text>
+
+      <Text
+        style={{
+          color: "#cbd5e1",
+          fontSize: 18,
+          lineHeight: 28,
+          textAlign: "center",
+          marginTop: 18,
+        }}
+      >
+        This staff access profile is not currently
+        enabled.
+      </Text>
+    </View>
+  );
+}
+
+if (ordersAccessState === "error") {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#020817",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 28,
+      }}
+    >
+      <Text
+        style={{
+          color: "#ffffff",
+          fontSize: 27,
+          fontWeight: "900",
+          textAlign: "center",
+        }}
+      >
+        Unable to load Orders
+      </Text>
+
+      <Text
+        style={{
+          color: "#cbd5e1",
+          fontSize: 18,
+          lineHeight: 28,
+          textAlign: "center",
+          marginTop: 16,
+        }}
+      >
+        Your account access or order records could not
+        be verified.
+      </Text>
+    </View>
+  );
+}
 
   if (!user) {
     return (
@@ -153,7 +391,14 @@ useEffect(() => {
         </Text>
 
         <Pressable
-          onPress={() => router.push("/login?redirectTo=/orders")}
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/login",
+              params: {
+                redirectTo: "/orders",
+              },
+            } as any)
+          }
           style={{
             backgroundColor: "#60a5fa",
             paddingVertical: 14,

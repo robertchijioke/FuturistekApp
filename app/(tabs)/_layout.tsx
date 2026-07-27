@@ -3,11 +3,11 @@ import { Tabs } from "expo-router";
 import { Text, View } from "react-native";
 import { useCart } from "../../context/CartContext";
 
-export default function TabsLayout() {
-  const { totalItems } = useCart();
+  export default function TabsLayout() {
+    const { totalItems } = useCart();
 
-const cartCount = totalItems;
-const badgeText = cartCount > 99 ? "99+" : String(cartCount);
+    const cartCount = totalItems;
+    const badgeText = cartCount > 99 ? "99+" : String(cartCount);
   return (
     <Tabs screenOptions={{ headerShown: false }}>
       <Tabs.Screen

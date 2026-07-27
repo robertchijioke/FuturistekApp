@@ -83,6 +83,20 @@ export default function MissionControl() {
     accessProfile?.enabled === true &&
     accessProfile.role === "ENTERPRISE_ADMIN";
 
+  const isSiteManagerAccount =
+    accessProfile?.enabled === true &&
+    accessProfile.role === "SITE_MANAGER";
+
+  const missionControlSubtitle =
+    isSiteManagerAccount
+      ? "Assigned-site care monitoring"
+      : "Enterprise multi-site care monitoring";
+
+  const monitoringLiveText =
+    isSiteManagerAccount
+      ? "Site monitoring live"
+      : "Enterprise monitoring live";
+
   useEffect(() => {
     const currentUser = auth.currentUser;
 
@@ -521,6 +535,24 @@ export default function MissionControl() {
     0
   );
 
+  const aiSummaryText =
+    totalIncidents > 0
+      ? isSiteManagerAccount
+        ? `Your assigned care site is being monitored. ${totalIncidents} active ${
+            totalIncidents === 1
+              ? "incident requires"
+              : "incidents require"
+          } attention.`
+        : `All connected sites are being monitored. ${totalIncidents} active ${
+            totalIncidents === 1
+              ? "incident requires"
+              : "incidents require"
+          } attention.`
+      : isSiteManagerAccount
+        ? "Your assigned care site is being monitored. No active incidents currently require attention."
+        : "All connected sites are being monitored. No active incidents currently require attention.";
+
+
   return (
     <ScrollView
       style={styles.container}
@@ -529,7 +561,7 @@ export default function MissionControl() {
       <Text style={styles.title}>🌍 Futuristek Mission Control</Text>
 
       <Text style={styles.subtitle}>
-        Enterprise multi-site care monitoring
+        {missionControlSubtitle}
       </Text>
 
       <View style={styles.summaryGrid}>
@@ -565,18 +597,12 @@ export default function MissionControl() {
         <Text style={styles.sectionTitle}>🤖 AI Command Centre</Text>
 
         <Text style={styles.commandText}>
-          {totalIncidents > 0
-            ? `All connected sites are being monitored. ${totalIncidents} active ${
-                totalIncidents === 1
-                  ? "incident requires"
-                  : "incidents require"
-              } attention.`
-            : "All connected sites are being monitored. No active incidents currently require attention."}
+          {aiSummaryText}
         </Text>
 
         <View style={styles.commandStatus}>
           <Text style={styles.liveDot}>●</Text>
-          <Text style={styles.liveText}>Enterprise monitoring live</Text>
+          <Text style={styles.liveText}>{monitoringLiveText}</Text>
         </View>
       </View>
 

@@ -1,8 +1,9 @@
 import { Href, router, useLocalSearchParams } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import React, { useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
-import { auth } from "../../lib/firebase";
+import { auth, db } from "../../lib/firebase";
 import { ensureUserDocument } from "../../lib/user";
 
 export default function LoginScreen() {
@@ -17,12 +18,61 @@ const onLogin = async () => {
     console.log("LOGIN SUCCESS:", cred.user.uid, cred.user.email);
     console.log("AUTH AFTER LOGIN:", auth.currentUser?.uid, auth.currentUser?.email);
 
+    const accessProfileSnapshot = await getDoc(
+      doc(
+        db,
+        "userAccessProfiles",
+        cred.user.uid
+      )
+    );
+
+    if (accessProfileSnapshot.exists()) {
+      const accessData = accessProfileSnapshot.data();
+
+      const role = String(accessData.role ?? "")
+        .trim()
+        .toUpperCase();
+
+      const enabled = accessData.enabled === true;
+
+      console.log("STAFF ACCESS PROFILE FOUND:", {
+        role,
+        enabled,
+        siteIds: accessData.siteIds ?? [],
+      });
+
+      if (!enabled) {
+        await signOut(auth);
+
+        Alert.alert(
+          "Access disabled",
+          "Your staff access profile is currently disabled."
+        );
+
+        return;
+      }
+
+      if (role === "SITE_MANAGER") {
+        router.replace("/mission-control" as any);
+        return;
+      }
+
+      if (role === "ENTERPRISE_ADMIN") {
+        const enterpriseDestination =
+          (redirectTo || "/mission-control") as Href;
+
+        router.replace(enterpriseDestination);
+        return;
+      }
+    }
     await ensureUserDocument({
       uid: cred.user.uid,
       email: cred.user.email ?? "",
     });
 
-    const destination = (redirectTo || "/(tabs)/profile") as Href;
+    const destination =
+      (redirectTo || "/(tabs)/profile") as Href;
+
     router.replace(destination);
   } catch (e: any) {
     console.log("❌ LOGIN FAILED:", e);
@@ -120,31 +170,31 @@ const onLogin = async () => {
           </Text>
         </Pressable>
         <Pressable onPress={() => router.push("/(auth)/signup")}>
-  <Text
-    style={{
-      color: "#60a5fa",
-      textAlign: "center",
-      marginTop: 18,
-      fontSize: 15,
-      fontWeight: "600",
-    }}
-  >
-    Create account
-  </Text>
-</Pressable>
+          <Text
+            style={{
+              color: "#60a5fa",
+              textAlign: "center",
+              marginTop: 18,
+              fontSize: 15,
+              fontWeight: "600",
+            }}
+          >
+            Create account
+          </Text>
+        </Pressable>
 
-<Pressable onPress={() => router.push("/(auth)/forgot-password")}>
-  <Text
-    style={{
-      color: "#94a3b8",
-      textAlign: "center",
-      marginTop: 14,
-      fontSize: 14,
-    }}
-  >
-    Forgot password?
-  </Text>
-</Pressable>
+        <Pressable onPress={() => router.push("/(auth)/forgot-password")}>
+          <Text
+            style={{
+              color: "#94a3b8",
+              textAlign: "center",
+              marginTop: 14,
+              fontSize: 14,
+            }}
+          >
+            Forgot password?
+          </Text>
+        </Pressable>
 
         <Text
           style={{

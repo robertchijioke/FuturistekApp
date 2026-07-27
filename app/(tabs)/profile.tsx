@@ -1,6 +1,10 @@
 import { useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { auth, db } from "../../lib/firebase";
@@ -15,8 +19,23 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [signingOut, setSigningOut] =
+    useState(false);
+  const [staffRole, setStaffRole] =
+    useState<string | null>(null);
+
+  const isSiteManager =
+    staffRole === "SITE_MANAGER";
+
+  const isEnterpriseAdmin =
+    staffRole === "ENTERPRISE_ADMIN";
+
+  const isStaffAccount =
+    isSiteManager || isEnterpriseAdmin;
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadProfile = async () => {
       if (!user) {
         setLoading(false);
@@ -24,46 +43,198 @@ export default function ProfileScreen() {
       }
 
       try {
-        const profile = await getUserProfile(user.uid);
-        if (profile) {
-          setFullName(profile.fullName ?? "");
+        const accessProfileSnapshot = await getDoc(
+          doc(
+            db,
+            "userAccessProfiles",
+            user.uid
+          )
+        );
+
+        if (accessProfileSnapshot.exists()) {
+          const accessData =
+            accessProfileSnapshot.data();
+
+          const role = String(
+            accessData.role ?? ""
+          )
+            .trim()
+            .toUpperCase();
+
+          const isStaffAccount =
+            role === "ENTERPRISE_ADMIN" ||
+            role === "SITE_MANAGER";
+
+          if (isStaffAccount) {
+            if (!cancelled) {
+              setStaffRole(role);
+
+              setFullName(
+                String(
+                  accessData.fullName ??
+                    accessData.displayName ??
+                    accessData.name ??
+                    user.displayName ??
+                    user.email ??
+                    "Staff account"
+                ).trim()
+              );
+
+              setPhone(
+                String(
+                  accessData.phone ?? ""
+                ).trim()
+              );
+            }
+
+            console.log(
+              "STAFF PROFILE LOADED:",
+              {
+                role,
+                uid: user.uid,
+              }
+            );
+
+            return;
+          }
+        }
+
+        if (!cancelled) {
+          setStaffRole(null);
+        }
+
+        const profile = await getUserProfile(
+          user.uid
+        );
+
+        if (profile && !cancelled) {
+          setFullName(
+            profile.fullName ?? ""
+          );
+
           setPhone(profile.phone ?? "");
         }
       } catch (error) {
-        console.log("PROFILE LOAD ERROR:", error);
+        console.error(
+          "PROFILE LOAD ERROR:",
+          error
+        );
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     loadProfile();
-  }, [user]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
-  const savePushToken = async () => {
-    const user = auth.currentUser;
-    if (!user?.uid) return;
+    let cancelled = false;
 
-    const token = await registerForPushNotificationsAsync();
-    if (!token) return;
+    const savePushToken = async () => {
+      const currentUser = auth.currentUser;
 
-    await setDoc(
-      doc(db, "users", user.uid),
-      {
-        email: user.email ?? "",
-        expoPushToken: token,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+      if (!currentUser?.uid) {
+        return;
+      }
 
-    console.log("Saved expo push token:", token);
-  };
+      try {
+        const accessProfileSnapshot = await getDoc(
+          doc(
+            db,
+            "userAccessProfiles",
+            currentUser.uid
+          )
+        );
 
-  savePushToken();
-}, []);
+        if (accessProfileSnapshot.exists()) {
+          const accessData =
+            accessProfileSnapshot.data();
+
+          const role = String(
+            accessData.role ?? ""
+          )
+            .trim()
+            .toUpperCase();
+
+          const isStaffAccount =
+            accessData.enabled === true &&
+            (
+              role === "ENTERPRISE_ADMIN" ||
+              role === "SITE_MANAGER"
+            );
+
+          if (isStaffAccount) {
+            console.log(
+              "STAFF PUSH TOKEN SAVE SKIPPED:",
+              {
+                uid: currentUser.uid,
+                role,
+              }
+            );
+
+            return;
+          }
+        }
+
+        const token =
+          await registerForPushNotificationsAsync();
+
+        if (!token || cancelled) {
+          return;
+        }
+
+        await setDoc(
+          doc(
+            db,
+            "users",
+            currentUser.uid
+          ),
+          {
+            email: currentUser.email ?? "",
+            expoPushToken: token,
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            merge: true,
+          }
+        );
+
+        console.log(
+          "Saved expo push token:",
+          token
+        );
+      } catch (error) {
+        console.error(
+          "PUSH TOKEN SAVE ERROR:",
+          error
+        );
+      }
+    };
+
+    void savePushToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   const onSave = async () => {
+
+    if (staffRole) {
+      Alert.alert(
+        "Staff profile",
+        "Staff profile details are managed through the staff access system."
+      );
+
+      return;
+    }
+
     if (!user) return;
 
     try {
@@ -83,8 +254,34 @@ export default function ProfileScreen() {
   };
 
   const onSignOut = async () => {
-    await signOut(auth);
-    router.replace("/(tabs)/profile");
+    if (signingOut) {
+      return;
+    }
+
+    setSigningOut(true);
+
+    try {
+      router.replace("/(tabs)/home" as any);
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 350);
+      });
+
+      await signOut(auth);
+
+      console.log("SIGN OUT SUCCESS");
+    } catch (error: any) {
+      console.error("SIGN OUT ERROR:", error);
+
+      Alert.alert(
+        "Sign out failed",
+        error?.message ??
+          "Please try again."
+      );
+      router.replace(
+        "/(tabs)/profile" as any
+      );
+    }
   };
 
   if (!user) {
@@ -148,13 +345,15 @@ export default function ProfileScreen() {
     >
       <Text
         style={{
-          color: "white",
-          fontSize: 28,
-          fontWeight: "800",
-          marginBottom: 12,
+          color: "#ffffff",
+          fontSize: 42,
+          fontWeight: "900",
+          marginBottom: 18,
         }}
       >
-        My Profile
+        {isStaffAccount
+          ? "Staff Profile"
+          : "My Profile"}
       </Text>
 
       <Text
@@ -167,6 +366,24 @@ export default function ProfileScreen() {
         Signed in as {user.email}
       </Text>
 
+      {isStaffAccount && (
+        <Text
+          style={{
+            color: "#93c5fd",
+            fontSize: 18,
+            lineHeight: 27,
+            marginTop: 10,
+            marginBottom: 24,
+          }}
+        >
+          {isSiteManager
+            ? "Site Manager • assigned-site care access"
+            : "Enterprise Admin • full operational access"}
+        </Text>
+      )}
+
+      {!isStaffAccount && (
+     <>
       <TextInput
         value={fullName}
         onChangeText={setFullName}
@@ -218,23 +435,53 @@ export default function ProfileScreen() {
       </Pressable>
 
       <Pressable
-      onPress={() => router.push("/addresses")}
-      style={{
-        backgroundColor: "#0f172a",
-        padding: 16,
-        borderRadius: 14,
-        alignItems: "center",
-        marginTop: 12,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: "#1e293b",
-  }}
+        onPress={() => router.push("/addresses")}
+        style={{
+          backgroundColor: "#0f172a",
+          padding: 16,
+          borderRadius: 14,
+          alignItems: "center",
+          marginTop: 12,
+          marginBottom: 12,
+          borderWidth: 1,
+          borderColor: "#1e293b",
+    }}
+        >
+          <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
+            Manage Addresses
+          </Text>
+        </Pressable>
+        </>
+    )}
+
+    {isStaffAccount && (
+      <Pressable
+        onPress={() =>
+          router.push(
+            "/mission-control" as any
+          )
+        }
+        style={{
+          backgroundColor: "#2563eb",
+          paddingVertical: 18,
+          borderRadius: 16,
+          alignItems: "center",
+          marginBottom: 18,
+        }}
       >
-        <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
-          Manage Addresses
+        <Text
+          style={{
+            color: "#ffffff",
+            fontSize: 20,
+            fontWeight: "900",
+          }}
+        >
+          🌍 Open Mission Control
         </Text>
       </Pressable>
-
+    )}
+      {isEnterpriseAdmin && (
+  <>
       <Pressable
         onPress={() => router.push("/admin")}
         style={{
@@ -257,20 +504,52 @@ export default function ProfileScreen() {
           Admin Dashboard
         </Text>
       </Pressable>
+      </>
+    )}
 
-      <Pressable
-        onPress={onSignOut}
-        style={{
+      {!isStaffAccount && (
+        <Pressable
+          onPress={onSignOut}
+          disabled={signingOut}
+          style={{
           backgroundColor: "#1e293b",
           paddingVertical: 16,
           borderRadius: 14,
           alignItems: "center",
+          opacity: signingOut ? 0.6 : 1,
         }}
       >
         <Text style={{ color: "white", fontWeight: "700", fontSize: 18 }}>
-          Sign Out
+          {signingOut ? "Signing out..." : "Sign out"}
         </Text>
       </Pressable>
+    )}
+
+    {isStaffAccount && (
+      <Pressable
+        onPress={() =>
+          router.push(
+            "/(tabs)/menu" as any
+          )
+        }
+        style={{
+          backgroundColor: "#1e293b",
+          paddingVertical: 17,
+          borderRadius: 15,
+          alignItems: "center",
+        }}
+      >
+        <Text
+          style={{
+            color: "#ffffff",
+            fontSize: 18,
+            fontWeight: "800",
+          }}
+        >
+          ← Back to Staff Menu
+        </Text>
+      </Pressable>
+    )}
     </View>
   );
 }

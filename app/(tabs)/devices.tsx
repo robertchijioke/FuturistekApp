@@ -1,5 +1,6 @@
   import { useLocalSearchParams, useRouter } from "expo-router";
-import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { startAutomationEngine } from "../../lib/automationEngine";
@@ -27,6 +28,13 @@ import { auth, db } from "../../lib/firebase";
     }
   }
 
+  type DevicesAccessState =
+    | "checking"
+    | "signedOut"
+    | "siteManager"
+    | "allowed"
+    | "error";
+
   export default function DevicesScreen() {
     const router = useRouter();
 
@@ -37,52 +45,221 @@ import { auth, db } from "../../lib/firebase";
     const [brightness, setBrightness] = useState(100);
     const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
     const [automations, setAutomations] = useState<any[]>([]);
+    const [devicesAccessState, setDevicesAccessState] =
+      useState<DevicesAccessState>("checking");
 
 
   useEffect(() => {
-    startAutomationEngine();
-    const user = auth.currentUser;
+    let unsubscribeDevices:
+      | (() => void)
+      | null = null;
 
-    if (!user) return;
+    let unsubscribeAutomations:
+      | (() => void)
+      | null = null;
 
-    const q = query(
-      collection(db, "users", user.uid, "devices"),
-      orderBy("createdAt", "desc")
+    let accessCheckVersion = 0;
+
+    const stopDataListeners = () => {
+      unsubscribeDevices?.();
+      unsubscribeAutomations?.();
+
+      unsubscribeDevices = null;
+      unsubscribeAutomations = null;
+    };
+
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (user) => {
+        accessCheckVersion += 1;
+
+        const currentCheckVersion =
+          accessCheckVersion;
+
+        stopDataListeners();
+
+        setDevices([]);
+        setAutomations([]);
+
+        if (!user) {
+          setDevicesAccessState("signedOut");
+          return;
+        }
+
+        setDevicesAccessState("checking");
+
+        void (async () => {
+          try {
+            const accessProfileSnapshot =
+              await getDoc(
+                doc(
+                  db,
+                  "userAccessProfiles",
+                  user.uid
+                )
+              );
+
+            if (
+              currentCheckVersion !==
+              accessCheckVersion
+            ) {
+              return;
+            }
+
+            if (accessProfileSnapshot.exists()) {
+              const accessData =
+                accessProfileSnapshot.data();
+
+              const role = String(
+                accessData.role ?? ""
+              )
+                .trim()
+                .toUpperCase();
+
+              const isSiteManager =
+                accessData.enabled === true &&
+                role === "SITE_MANAGER";
+
+              if (isSiteManager) {
+                console.log(
+                  "DEVICES ACCESS BLOCKED FOR SITE MANAGER:",
+                  {
+                    uid: user.uid,
+                    role,
+                  }
+                );
+
+                setDevicesAccessState(
+                  "siteManager"
+                );
+
+                return;
+              }
+            }
+
+            setDevicesAccessState("allowed");
+
+            /*
+            * Do not start the automation engine for
+            * signed-out users or Site Managers.
+            */
+            await Promise.resolve(
+              startAutomationEngine()
+            ).catch((error) => {
+              console.error(
+                "AUTOMATION ENGINE START ERROR:",
+                error
+              );
+            });
+
+            if (
+              currentCheckVersion !==
+                accessCheckVersion ||
+              auth.currentUser?.uid !== user.uid
+            ) {
+              return;
+            }
+
+            const devicesQuery = query(
+              collection(
+                db,
+                "users",
+                user.uid,
+                "devices"
+              ),
+              orderBy("createdAt", "desc")
+            );
+
+            unsubscribeDevices = onSnapshot(
+              devicesQuery,
+              (snapshot) => {
+                const list = snapshot.docs.map(
+                  (document) => ({
+                    id: document.id,
+                    ...document.data(),
+                  })
+                );
+
+                const filteredList = list.filter(
+                  (device: any) =>
+                    String(
+                      device.propertyId || "home"
+                    ) === currentPropertyId
+                );
+
+                setDevices(filteredList);
+              },
+              (error) => {
+                console.error(
+                  "DEVICES LISTENER ERROR:",
+                  error
+                );
+
+                setDevices([]);
+                setDevicesAccessState("error");
+              }
+            );
+
+            const automationsQuery = query(
+              collection(
+                db,
+                "users",
+                user.uid,
+                "automations"
+              ),
+              orderBy("createdAt", "desc")
+            );
+
+            unsubscribeAutomations =
+              onSnapshot(
+                automationsQuery,
+                (snapshot) => {
+                  const list =
+                    snapshot.docs.map(
+                      (document) => ({
+                        id: document.id,
+                        ...document.data(),
+                      })
+                    );
+
+                  setAutomations(list);
+                },
+                (error) => {
+                  console.error(
+                    "AUTOMATIONS LISTENER ERROR:",
+                    error
+                  );
+
+                  setAutomations([]);
+                  setDevicesAccessState(
+                    "error"
+                  );
+                }
+              );
+          } catch (error) {
+            console.error(
+              "DEVICES ACCESS CHECK ERROR:",
+              error
+            );
+
+            if (
+              currentCheckVersion ===
+              accessCheckVersion
+            ) {
+              setDevicesAccessState("error");
+            }
+          }
+        })();
+      }
     );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-    const filteredList = list.filter(
-      (device: any) =>
-        String(device.propertyId || "home") === currentPropertyId
-    );
-
-    setDevices(filteredList);
-    });
-
-    const automationsQuery = query(
-      collection(db, "users", user.uid, "automations"),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsubscribeAutomations = onSnapshot(automationsQuery, (snapshot) => {
-    const list = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setAutomations(list);
-    });
 
     return () => {
-      unsubscribe();
-      unsubscribeAutomations();
+      accessCheckVersion += 1;
+
+      stopDataListeners();
+      unsubscribeAuth();
     };
-  }, []);
+  }, [currentPropertyId]);
 
     const roomCounts = devices.reduce((acc: any, device: any) => {
       const room = device.room || "Other";
@@ -145,6 +322,94 @@ import { auth, db } from "../../lib/firebase";
   const homeDevices = devices.filter(
     (device: any) => String(device.propertyId || "home") === "home"
   );
+
+  if (devicesAccessState === "checking") {
+    return (
+      <View style={styles.accessContainer}>
+        <Text style={styles.accessTitle}>
+          Checking device access...
+        </Text>
+
+        <Text style={styles.accessText}>
+          Your account permissions are being verified.
+        </Text>
+      </View>
+    );
+  }
+
+  if (devicesAccessState === "signedOut") {
+    return (
+      <View style={styles.accessContainer}>
+        <Text style={styles.accessTitle}>
+          🏠 Your Smart Home
+        </Text>
+
+        <Text style={styles.accessText}>
+          Sign in to view and control your connected
+          smart-home devices.
+        </Text>
+
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/login",
+              params: {
+                redirectTo: "/(tabs)/devices",
+              },
+            } as any)
+          }
+          style={styles.accessButton}
+        >
+          <Text style={styles.accessButtonText}>
+            Sign In
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (devicesAccessState === "siteManager") {
+    return (
+      <View style={styles.accessContainer}>
+        <Text style={styles.accessTitle}>
+          🏥 Staff Account
+        </Text>
+
+        <Text style={styles.accessText}>
+          Customer smart-home device controls are not
+          available to Site Manager accounts.
+        </Text>
+
+        <Pressable
+          onPress={() =>
+            router.push(
+              "/mission-control" as any
+            )
+          }
+          style={styles.accessButton}
+        >
+          <Text style={styles.accessButtonText}>
+            Open Mission Control
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (devicesAccessState === "error") {
+    return (
+      <View style={styles.accessContainer}>
+        <Text style={styles.accessTitle}>
+          Unable to load devices
+        </Text>
+
+        <Text style={styles.accessText}>
+          Device access could not be verified. Reload
+          the screen and try again.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -624,5 +889,42 @@ dashboardTitle: {
   fontSize: 22,
   fontWeight: "700",
   marginBottom: 18,
+},
+
+accessContainer: {
+  flex: 1,
+  backgroundColor: "#061826",
+  alignItems: "center",
+  justifyContent: "center",
+  paddingHorizontal: 30,
+},
+
+accessTitle: {
+  color: "#ffffff",
+  fontSize: 29,
+  fontWeight: "900",
+  textAlign: "center",
+},
+
+accessText: {
+  color: "#cbd5e1",
+  fontSize: 18,
+  lineHeight: 28,
+  textAlign: "center",
+  marginTop: 16,
+},
+
+accessButton: {
+  backgroundColor: "#2563eb",
+  borderRadius: 16,
+  paddingHorizontal: 26,
+  paddingVertical: 16,
+  marginTop: 28,
+},
+
+accessButtonText: {
+  color: "#ffffff",
+  fontSize: 18,
+  fontWeight: "900",
 },
 });

@@ -377,27 +377,6 @@ import { db } from "../lib/firebase";
             🚨 Emergency Escalation
           </Text>
         </Pressable>
-
-        <Pressable
-          onPress={() => router.push("/care-command-center" as any)}
-          style={{
-            backgroundColor: "#7c3aed",
-            padding: 16,
-            borderRadius: 14,
-            marginTop: 12,
-          }}
-        >
-          <Text
-            style={{
-              color: "#fff",
-              fontSize: 18,
-              fontWeight: "800",
-              textAlign: "center",
-            }}
-          >
-            🏥 Care Command Center
-          </Text>
-        </Pressable>
       </View>
 
       <View style={{ backgroundColor: "#0f2d49", borderRadius: 20, padding: 20, marginBottom: 18 }}>
