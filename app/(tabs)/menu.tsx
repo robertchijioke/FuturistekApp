@@ -309,6 +309,16 @@ export default function MenuScreen() {
             />
           )}
 
+          {isEnterpriseAdmin && (
+            <MenuCard
+              title="Manage Care Sites"
+              icon="business-outline"
+              onPress={() =>
+                router.push("/manage-care-sites" as any)
+              }
+            />
+          )}
+
           <MenuCard
             title="Staff Profile"
             icon="person-circle-outline"
