@@ -965,7 +965,9 @@ const acknowledgeEnterpriseEscalation = async (
       contentContainerStyle={styles.content}
     >
       <Pressable
-        onPress={() => router.back()}
+        onPress={() =>
+          router.replace("/mission-control" as any)
+        }
         style={styles.backButton}
       >
         <Text style={styles.backButtonText}>

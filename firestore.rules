@@ -48,6 +48,15 @@ service cloud.firestore {
         );
     }
 
+    function canAccessOwnSmartHome(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && (
+          !profileExists()
+          || isEnterpriseAdmin()
+        );
+    }
+
     match /userAccessProfiles/{uid} {
       allow read: if signedIn()
         && (
@@ -79,6 +88,15 @@ service cloud.firestore {
       allow write: if isEnterpriseAdmin();
     }
 
+    match /users/{userId} {
+      allow read, create, update: if canAccessOwnSmartHome(userId);
+      allow delete: if false;
+
+      match /{document=**} {
+        allow read, write: if canAccessOwnSmartHome(userId);
+      }
+    }
+
     match /orders/{orderId} {
       allow read: if isEnterpriseAdmin()
         || (
@@ -99,6 +117,7 @@ service cloud.firestore {
         && topLevelCollection != "residents"
         && topLevelCollection != "careEvents"
         && topLevelCollection != "orders"
+        && topLevelCollection != "users"
         && isEnterpriseAdmin();
     }
   }

@@ -7,9 +7,13 @@ import {
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import {
+  stopAutomationEngine,
+} from "../../lib/automationEngine";
 import { auth, db } from "../../lib/firebase";
 import { registerForPushNotificationsAsync } from "../../lib/notifications";
 import { getUserProfile, updateUserProfile } from "../../lib/user";
+
 
 export default function ProfileScreen() {
   const user = auth.currentUser;
@@ -259,6 +263,8 @@ export default function ProfileScreen() {
     setSigningOut(true);
 
     try {
+      stopAutomationEngine();
+
       router.dismissAll();
       router.replace("/(tabs)/home" as any);
 

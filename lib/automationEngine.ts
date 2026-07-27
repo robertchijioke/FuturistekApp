@@ -1,12 +1,36 @@
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
-
 import { auth, db } from "./firebase";
 import { sendPushNotification } from "./sendPush";
+
+
+let automationEngineUnsubscribe: (() => void) | null = null;
+let automationEngineUserId: string | null = null;
+
+export function stopAutomationEngine() {
+  automationEngineUnsubscribe?.();
+  automationEngineUnsubscribe = null;
+  automationEngineUserId = null;
+
+  console.log("AUTOMATION ENGINE STOPPED");
+}
+
 
 export function startAutomationEngine() {
   const user = auth.currentUser;
 
-  if (!user) return;
+    if (!user) {
+      stopAutomationEngine();
+      return;
+    }
+
+    if (
+      automationEngineUnsubscribe &&
+      automationEngineUserId === user.uid
+    ) {
+      return;
+    }
+    stopAutomationEngine();
+    automationEngineUserId = user.uid;
 
   const devicesRef = collection(
     db,
@@ -20,7 +44,14 @@ export function startAutomationEngine() {
     where("type", "==", "Sensor")
   );
 
-  onSnapshot(sensorQuery, async (snapshot) => {
+  automationEngineUnsubscribe = onSnapshot(
+    sensorQuery,
+    (snapshot) => {
+      void (async () => {
+        try {
+          if (auth.currentUser?.uid !== user.uid) {
+            return;
+          }
 
     
     for (const sensorDoc of snapshot.docs) {
@@ -112,5 +143,33 @@ export function startAutomationEngine() {
         }
       }
     }
-  });
+      } catch (error: any) {
+        if (
+          error?.code === "permission-denied" &&
+          auth.currentUser?.uid !== user.uid
+        ) {
+          return;
+        }
+
+        console.error(
+          "AUTOMATION ENGINE CALLBACK ERROR:",
+          error
+        );
+      }
+    })();
+  },
+  (error) => {
+    if (
+      error.code === "permission-denied" &&
+      auth.currentUser?.uid !== user.uid
+    ) {
+      return;
+    }
+
+    console.error(
+      "AUTOMATION ENGINE SNAPSHOT ERROR:",
+      error
+    );
+  }
+);
 }

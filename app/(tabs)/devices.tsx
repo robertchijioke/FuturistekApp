@@ -139,10 +139,6 @@ import { auth, db } from "../../lib/firebase";
 
             setDevicesAccessState("allowed");
 
-            /*
-            * Do not start the automation engine for
-            * signed-out users or Site Managers.
-            */
             await Promise.resolve(
               startAutomationEngine()
             ).catch((error) => {

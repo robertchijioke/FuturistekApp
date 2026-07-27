@@ -21,8 +21,11 @@ import {
   Text,
   View,
 } from "react-native";
-
+import {
+  stopAutomationEngine,
+} from "../../lib/automationEngine";
 import { auth, db } from "../../lib/firebase";
+
 
 type MenuMode =
   | "checking"
@@ -193,28 +196,24 @@ export default function MenuScreen() {
   }, []);
 
   const onMenuSignOut = async () => {
-    if (signingOut) return;
+    if (signingOut) {
+      return;
+    }
 
     setSigningOut(true);
 
     try {
-      setMenuMode("signedOut");
-
-      menuScrollRef.current?.scrollTo({
-        y: 0,
-        animated: false,
-      });
+      stopAutomationEngine();
 
       router.replace("/(tabs)/home" as any);
 
       await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve());
-        });
+        setTimeout(resolve, 350);
       });
 
       await signOut(auth);
 
+      setMenuMode("signedOut");
       console.log("MENU SIGN OUT SUCCESS");
     } catch (error: any) {
       console.error("MENU SIGN OUT ERROR:", error);
